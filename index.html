@@ -629,6 +629,7 @@
           <div id="gcActions">
             <button class="btn btn-primary btn-block btn-sm" onclick="openPaymentModal()">Simulate Payment</button>
             <button class="btn btn-outline btn-block btn-sm" style="margin-top:8px" onclick="advanceStatus()">Advance Status</button>
+            <button class="btn btn-outline btn-block btn-sm" style="margin-top:8px;border-color:var(--danger);color:#ff6b6b" onclick="cancelTransaction()">✕ Cancel Transaction</button>
           </div>
           <div id="gcMmOnlyActions" style="margin-top:10px;display:none">
             <button class="btn btn-outline btn-block btn-sm" style="border-color:var(--danger);color:#ff6b6b" onclick="cancelTransactionByMm()">✕ Cancel Transaction</button>
@@ -1309,6 +1310,7 @@ function enterApp() {
   publishPresence(true);
   loadPublicListings();
   syncPublicPresence();
+  loadPublicTransactions(false);
   if (!window.__presenceTimer) {
     window.__presenceTimer = setInterval(() => {
       if (currentUser) {
@@ -1316,6 +1318,7 @@ function enterApp() {
         publishPresence(true);
         loadPublicListings();
         syncPublicPresence();
+        loadPublicTransactions(true);
         updateNavUser();
       }
     }, 30000);
@@ -1786,8 +1789,120 @@ async function deleteListing(id) {
 function getTransactions() {
   return load(KEYS.transactions, []);
 }
+
+// Shared transactions / GC across devices via Supabase.
+function publicRowToTransaction(row) {
+  return {
+    id: String(row.id),
+    listingId: row.listing_id,
+    item: row.item || '',
+    game: row.game || '',
+    price: Number(row.price || 0),
+    fee: Number(row.fee || 0),
+    total: Number(row.total || 0),
+    buyer: row.buyer || '',
+    seller: row.seller || '',
+    mm: row.mm || null,
+    status: row.status || 'WAITING FOR MIDDLEMAN',
+    date: row.date || '',
+    messages: Array.isArray(row.messages) ? row.messages : [],
+    gcClosed: row.gc_closed === true,
+    gcClosedAt: row.gc_closed_at || null,
+    gcClosedBy: row.gc_closed_by || null
+  };
+}
+
+function transactionToPublicRow(tx) {
+  return {
+    id: String(tx.id),
+    listing_id: tx.listingId == null ? null : String(tx.listingId),
+    item: tx.item || '',
+    game: tx.game || '',
+    price: Number(tx.price || 0),
+    fee: Number(tx.fee || 0),
+    total: Number(tx.total || 0),
+    buyer: tx.buyer || '',
+    seller: tx.seller || '',
+    mm: tx.mm || null,
+    status: tx.status || 'WAITING FOR MIDDLEMAN',
+    date: tx.date || '',
+    messages: Array.isArray(tx.messages) ? tx.messages : [],
+    gc_closed: tx.gcClosed === true,
+    gc_closed_at: tx.gcClosedAt || null,
+    gc_closed_by: tx.gcClosedBy || null,
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function loadPublicTransactions(showNotification = false) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('public_transactions')
+      .select('*')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+
+    const remote = (data || []).map(publicRowToTransaction);
+    const local = getTransactions();
+    const oldMap = new Map(local.map(t => [String(t.id), JSON.stringify(t)]));
+    const map = new Map(local.map(t => [String(t.id), t]));
+    remote.forEach(t => map.set(String(t.id), t));
+    const merged = Array.from(map.values());
+    save(KEYS.transactions, merged);
+
+    if (showNotification && currentUser) {
+      const mine = remote.filter(t =>
+        t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username
+      );
+      const changed = mine.find(t => oldMap.has(String(t.id)) && oldMap.get(String(t.id)) !== JSON.stringify(t));
+      const added = mine.find(t => !oldMap.has(String(t.id)));
+      const event = added || changed;
+      if (event) {
+        const lastMsg = (event.messages || []).slice(-1)[0];
+        const isNewMsg = lastMsg && lastMsg.type === 'chat' && lastMsg.from !== currentUser.username;
+        if (isNewMsg) {
+          showToast('💬 New GC message', `@${lastMsg.from}: ${lastMsg.text.substring(0, 55)}`);
+        } else if (added) {
+          showToast('🔔 New transaction', `#${event.id} • ${event.item}`);
+        } else if (changed && event.status !== 'WAITING FOR MIDDLEMAN') {
+          showToast('🔔 Transaction updated', `#${event.id} • ${event.status}`);
+        }
+        const dot = document.getElementById('notifDot');
+        if (dot) dot.style.display = 'block';
+      }
+    }
+
+    renderTransactions();
+    renderGcList();
+    renderMmRequests();
+    renderMmActive();
+    refreshMmNotifBadge();
+    return true;
+  } catch (err) {
+    console.error('Supabase transactions load failed:', err);
+    return false;
+  }
+}
+
+async function syncPublicTransactions(arr) {
+  try {
+    const rows = arr.map(transactionToPublicRow);
+    if (!rows.length) return true;
+    const { error } = await supabaseClient
+      .from('public_transactions')
+      .upsert(rows, { onConflict: 'id' });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Supabase transaction sync failed:', err);
+    return false;
+  }
+}
+
 function saveTransactions(arr) {
   save(KEYS.transactions, arr);
+  // Keep the existing local behavior while also syncing the GC/transaction publicly.
+  syncPublicTransactions(arr);
 }
 
 function startMiddleman() {
@@ -1834,6 +1949,7 @@ function startMiddleman() {
   const txs = getTransactions();
   txs.unshift(tx);
   saveTransactions(txs);
+  syncPublicTransactions(txs);
   currentTx = tx;
   renderTransactions();
   renderGcList();
@@ -1863,7 +1979,7 @@ function claimTransaction(txId) {
     return;
   }
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === txId);
+  const tx = txs.find(t => String(t.id) === String(txId));
   if (!tx || tx.mm) return;
   const myAvail = (currentUser.mmAvailability || mmStatus || 'AVAILABLE').toUpperCase();
   if (myAvail !== 'AVAILABLE') {
@@ -1978,7 +2094,7 @@ function sendGcMsg() {
   const text = input.value.trim();
   if (!text || !currentTx) return;
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === currentTx.id);
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx || !canAccessGc(tx)) {
     showToast('Private GC', 'Access denied.');
     return;
@@ -1995,6 +2111,40 @@ function sendGcMsg() {
   openGc(currentTx.id);
 }
 
+function cancelTransaction() {
+  if (!currentTx || !currentUser) return;
+  if (currentTx.status === 'COMPLETED' || currentTx.status === 'CANCELLED') {
+    showToast('Already ended', currentTx.status);
+    return;
+  }
+  if (currentUser.username !== currentTx.buyer && currentUser.username !== currentTx.seller) {
+    showToast('Access denied', 'Only the Buyer or Seller can cancel this transaction.');
+    return;
+  }
+  if (!confirm('Cancel this transaction? The GC will be removed.')) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
+  if (!tx) return;
+  tx.status = 'CANCELLED';
+  tx.gcClosed = true;
+  tx.gcClosedAt = getPHT();
+  tx.gcClosedBy = currentUser.username;
+  tx.messages = tx.messages || [];
+  tx.messages.push({ type: 'system', text: `Transaction CANCELLED by @${currentUser.username}.`, time: getPHT() });
+  saveTransactions(txs);
+  currentTx = null;
+  document.getElementById('gcTitle').textContent = 'Select a transaction GC';
+  document.getElementById('gcMembers').textContent = '';
+  document.getElementById('gcStatusBadge').textContent = '';
+  document.getElementById('gcInputArea').style.display = 'none';
+  document.getElementById('gcInfoPanel').style.display = 'none';
+  document.getElementById('gcMessages').innerHTML = '<div class="empty"><div class="icon">💬</div>Transaction cancelled — GC removed</div>';
+  renderGcList();
+  renderTransactions();
+  renderMmActive();
+  showToast('Transaction Cancelled', 'The GC has been removed.');
+}
+
 function cancelTransactionByMm() {
   if (!currentTx || !isAssignedMm(currentTx)) {
     showToast('Access denied', 'Assigned Middleman only.');
@@ -2006,7 +2156,7 @@ function cancelTransactionByMm() {
   }
   if (!confirm('Cancel this transaction? Chat will lock. You can then Finish & Delete the GC.')) return;
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === currentTx.id);
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
   tx.status = 'CANCELLED';
   tx.messages = tx.messages || [];
@@ -2030,7 +2180,7 @@ function closeGcByMiddleman() {
   }
   if (!confirm('Finish & permanently remove this GC from all participants\' lists?')) return;
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === currentTx.id);
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
   tx.gcClosed = true;
   tx.gcClosedAt = getPHT();
@@ -2069,7 +2219,7 @@ function selectPay(el) {
 function confirmPayment() {
   if (!currentTx) return;
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === currentTx.id);
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
   tx.status = 'PAYMENT CONFIRMED';
   tx.messages.push({
@@ -2088,7 +2238,7 @@ function confirmPayment() {
 function advanceStatus() {
   if (!currentTx) return;
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === currentTx.id);
+  const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
   const idx = statusFlow.indexOf(tx.status);
   if (idx < 0 || idx >= statusFlow.length - 1) return;
