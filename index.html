@@ -391,6 +391,10 @@
   }
   .user-menu-item:hover { background:var(--bg4); color:var(--accent); }
   .user-menu-item:last-child { border-bottom:none; color:#ff6b6b; }
+  /* Small + button for Message User */
+  .message-user-fab { position:fixed; top:72px; right:84px; width:38px; height:38px; border-radius:50%; background:var(--bg3); color:var(--text); border:1px solid var(--border); cursor:pointer; z-index:1500; display:flex; align-items:center; justify-content:center; font-size:1.35rem; font-weight:700; line-height:1; box-shadow:0 4px 14px rgba(0,0,0,.3); transition:all .15s; }
+  .message-user-fab:hover { border-color:var(--accent); color:var(--accent); transform:scale(1.06); }
+  @media(max-width:900px){ .message-user-fab { top:68px; right:58px; width:34px; height:34px; font-size:1.15rem; } }
   /* Floating + button (create post) */
   .fab {
     position: fixed;
@@ -614,7 +618,7 @@
           <option>Asia</option>
         </select>
         <input type="text" class="form-control" style="width:220px" id="searchInput" placeholder="Search items..." oninput="renderListings()">
-        <button class="btn btn-outline" onclick="openModal('userSearchModal');setTimeout(()=>document.getElementById('userSearchInput')?.focus(),50)">👤 Message User</button>
+        <button class="message-user-fab" onclick="openModal('userSearchModal');setTimeout(()=>document.getElementById('userSearchInput')?.focus(),50)" title="Message User">＋</button>
       </div>
       <div class="grid grid-4" id="listingsGrid"></div>
     </div>
