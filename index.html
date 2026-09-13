@@ -944,7 +944,9 @@ const KEYS = {
   listings: 'gf_listings',
   transactions: 'gf_transactions',
   fee: 'gf_fee',
-  mmApps: 'gf_mm_apps'
+  mmApps: 'gf_mm_apps',
+  uiPage: 'gf_ui_page',
+  uiTx: 'gf_ui_tx'
 };
 
 // ========== STATE ==========
@@ -1321,7 +1323,7 @@ function enterApp() {
         loadPublicTransactions(true);
         updateNavUser();
       }
-    }, 30000);
+    }, 5000);
   }
   // Restore middleman availability from user profile
   mmStatus = (currentUser.mmAvailability || 'AVAILABLE').toUpperCase();
@@ -1330,6 +1332,17 @@ function enterApp() {
   updateNavUser();
   updateSidebarRoles();
   renderAll();
+
+  // Restore the last page/GC after a browser refresh.
+  const savedPage = localStorage.getItem(KEYS.uiPage) || 'marketplace';
+  const savedTx = localStorage.getItem(KEYS.uiTx);
+  if (savedPage === 'gc' && savedTx) {
+    showPage('gc');
+    setTimeout(() => openGc(savedTx), 0);
+  } else {
+    showPage(savedPage);
+  }
+
   refreshMmNotifBadge();
   refreshAdminAppBadge();
   // Alert admin if there are pending MM applications
@@ -1374,6 +1387,8 @@ function logout() {
   updatePresenceOffline();
   currentUser = null;
   localStorage.removeItem(KEYS.session);
+  localStorage.removeItem(KEYS.uiPage);
+  localStorage.removeItem(KEYS.uiTx);
   document.getElementById('topNav').style.display = 'none';
   document.getElementById('appLayout').style.display = 'none';
   document.getElementById('fabBtn').classList.remove('show');
@@ -1516,6 +1531,8 @@ function showPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('page-' + page);
   if (el) el.classList.add('active');
+  localStorage.setItem(KEYS.uiPage, page);
+  if (page !== 'gc') localStorage.removeItem(KEYS.uiTx);
   document.querySelectorAll('.side-item').forEach(s => s.classList.remove('active'));
   const side = document.querySelector(`.side-item[data-page="${page}"]`);
   if (side) side.classList.add('active');
@@ -1850,6 +1867,16 @@ async function loadPublicTransactions(showNotification = false) {
     const merged = Array.from(map.values());
     save(KEYS.transactions, merged);
 
+    // Keep an already-open GC in sync on this device too.
+    if (currentTx) {
+      const freshTx = merged.find(t => String(t.id) === String(currentTx.id));
+      if (freshTx && JSON.stringify(freshTx) !== JSON.stringify(currentTx)) {
+        currentTx = freshTx;
+        const gcPage = document.getElementById('page-gc');
+        if (gcPage && gcPage.classList.contains('active')) openGc(freshTx.id);
+      }
+    }
+
     if (showNotification && currentUser) {
       const mine = remote.filter(t =>
         t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username
@@ -2028,7 +2055,7 @@ function renderGcList() {
 
 function openGc(txId) {
   const txs = getTransactions();
-  const tx = txs.find(t => t.id === txId);
+  const tx = txs.find(t => String(t.id) === String(txId));
   if (!tx) {
     showToast('Not found', 'Transaction GC not found.');
     return;
@@ -2043,6 +2070,8 @@ function openGc(txId) {
     return;
   }
   currentTx = tx;
+  localStorage.setItem(KEYS.uiPage, 'gc');
+  localStorage.setItem(KEYS.uiTx, String(tx.id));
   document.getElementById('gcTitle').textContent = `GF Transaction #${txId.split('-')[1]}`;
   document.getElementById('gcMembers').textContent = `👤 ${currentTx.buyer}  •  👤 ${currentTx.seller}  •  🛡 ${currentTx.mm || 'Waiting...'}  ·  🔒 Private`;
   document.getElementById('gcStatusBadge').className = 'status ' + (statusClass[currentTx.status] || '');
@@ -2133,6 +2162,8 @@ function cancelTransaction() {
   tx.messages.push({ type: 'system', text: `Transaction CANCELLED by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
   currentTx = null;
+  localStorage.removeItem(KEYS.uiTx);
+  localStorage.setItem(KEYS.uiPage, 'gc');
   document.getElementById('gcTitle').textContent = 'Select a transaction GC';
   document.getElementById('gcMembers').textContent = '';
   document.getElementById('gcStatusBadge').textContent = '';
@@ -2189,6 +2220,8 @@ function closeGcByMiddleman() {
   tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
   currentTx = null;
+  localStorage.removeItem(KEYS.uiTx);
+  localStorage.setItem(KEYS.uiPage, 'gc');
   document.getElementById('gcTitle').textContent = 'Select a transaction GC';
   document.getElementById('gcMembers').textContent = '';
   document.getElementById('gcStatusBadge').textContent = '';
