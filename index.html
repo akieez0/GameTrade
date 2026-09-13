@@ -654,9 +654,13 @@
       <h1>My Transactions</h1>
       <p class="subtitle">All your buys and sells • Times in Philippine Standard Time (PHT)</p>
       <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:8px;font-size:.9rem;cursor:pointer"><input type="checkbox" id="selectAllFinishedTx" onchange="toggleAllFinishedTransactions(this.checked)"> Select all finished</label>
+          <button class="btn btn-danger btn-sm" onclick="removeSelectedTransactions()">✕ Remove Selected</button>
+        </div>
         <table>
           <thead>
-            <tr><th>ID</th><th>Item</th><th>Role</th><th>Amount</th><th>Status</th><th>Date (PHT)</th><th>Actions</th></tr>
+            <tr><th>✓</th><th>ID</th><th>Item</th><th>Role</th><th>Amount</th><th>Status</th><th>Date (PHT)</th><th>Actions</th></tr>
           </thead>
           <tbody id="txBody"></tbody>
         </table>
@@ -2769,6 +2773,58 @@ function isTransactionHiddenForCurrentUser(txId) {
   return (hidden[currentUser.username] || []).includes(String(txId));
 }
 
+let selectedFinishedTransactions = new Set();
+
+function setFinishedTransactionSelected(txId, checked) {
+  txId = String(txId);
+  if (checked) selectedFinishedTransactions.add(txId);
+  else selectedFinishedTransactions.delete(txId);
+  const boxes = document.querySelectorAll('.tx-select-finished');
+  boxes.forEach(cb => { cb.checked = selectedFinishedTransactions.has(String(cb.value)); });
+  const all = document.getElementById('selectAllFinishedTx');
+  if (all) {
+    const eligible = [...boxes];
+    all.checked = eligible.length > 0 && eligible.every(cb => cb.checked);
+  }
+}
+
+function toggleAllFinishedTransactions(checked) {
+  document.querySelectorAll('.tx-select-finished').forEach(cb => {
+    const id = String(cb.value);
+    if (checked) selectedFinishedTransactions.add(id);
+    else selectedFinishedTransactions.delete(id);
+    cb.checked = checked;
+  });
+}
+
+function removeSelectedTransactions() {
+  if (!currentUser) return;
+  const selected = [...selectedFinishedTransactions];
+  if (!selected.length) return showToast('Nothing selected', 'Select one or more finished transactions first.');
+  const txs = getTransactions();
+  const valid = selected.filter(id => {
+    const tx = txs.find(t => String(t.id) === String(id));
+    return tx && ['COMPLETED','CANCELLED'].includes(tx.status) && [tx.buyer, tx.seller, tx.mm].includes(currentUser.username);
+  });
+  if (!valid.length) return showToast('Nothing to remove', 'Only your completed or cancelled transactions can be removed.');
+  if (!confirm(`Remove ${valid.length} selected transaction${valid.length > 1 ? 's' : ''} from your list?`)) return;
+  const hidden = load(KEYS.hiddenTransactions, {});
+  hidden[currentUser.username] = hidden[currentUser.username] || [];
+  valid.forEach(id => {
+    if (!hidden[currentUser.username].includes(String(id))) hidden[currentUser.username].push(String(id));
+    selectedFinishedTransactions.delete(String(id));
+  });
+  save(KEYS.hiddenTransactions, hidden);
+  if (currentTx && valid.includes(String(currentTx.id))) {
+    currentTx = null;
+    localStorage.removeItem(KEYS.uiTx);
+  }
+  renderTransactions();
+  renderGcList();
+  renderMmActive();
+  showToast('Removed', `${valid.length} transaction${valid.length > 1 ? 's' : ''} removed from your list.`);
+}
+
 // ========== RENDER HELPERS ==========
 function renderTransactions() {
   const body = document.getElementById('txBody');
@@ -2777,7 +2833,7 @@ function renderTransactions() {
     (t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username)
   );
   if (!txs.length) {
-    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">No transactions yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:30px">No transactions yet.</td></tr>';
     return;
   }
   body.innerHTML = txs.map(t => {
@@ -2787,18 +2843,19 @@ function renderTransactions() {
     const gcBtn = t.gcClosed
       ? '<span style="color:var(--text2);font-size:0.8rem">GC closed</span>'
       : `<button class="btn btn-outline btn-sm" onclick="showPage('gc');openGc('${t.id}')">Access GC</button>`;
-    const removeBtn = ['COMPLETED','CANCELLED'].includes(t.status)
-      ? ` <button class="btn btn-danger btn-sm" onclick="removeTransactionForCurrentUser('${t.id}')">✕</button>`
+    const selectBox = ['COMPLETED','CANCELLED'].includes(t.status)
+      ? `<input type="checkbox" class="tx-select-finished" value="${escapeHtml(t.id)}" onchange="setFinishedTransactionSelected('${escapeHtml(t.id)}', this.checked)" ${selectedFinishedTransactions.has(String(t.id)) ? 'checked' : ''} aria-label="Select transaction ${escapeHtml(t.id)}">`
       : '';
     return `
     <tr>
+      <td>${selectBox}</td>
       <td>${t.id}</td>
       <td>${escapeHtml(t.item.substring(0, 28))}...</td>
       <td><span class="role-badge role-${role}">${role.toUpperCase()}</span></td>
       <td>₱${Number(t.total).toLocaleString()}</td>
       <td><span class="status ${statusClass[t.status] || ''}">${t.status}</span></td>
       <td>${t.date}</td>
-      <td>${gcBtn}${removeBtn}</td>
+      <td>${gcBtn}</td>
     </tr>`;
   }).join('');
 }
