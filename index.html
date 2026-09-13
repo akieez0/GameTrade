@@ -712,6 +712,10 @@
             <button class="btn btn-primary btn-block btn-sm" style="margin-top:8px;display:none" id="btnCloseGc" onclick="closeGcByMiddleman()">🗑 Finish & Delete GC</button>
             <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">Privacy: Only the Buyer, Seller, and assigned Middleman have access. Only the Middleman can finish/delete the GC when COMPLETED or CANCELLED.</p>
           </div>
+          <div id="gcAdminOnlyActions" style="margin-top:10px;display:none">
+            <button class="btn btn-danger btn-block btn-sm" onclick="closeGcByAdmin()">✕ Remove Finished GC</button>
+          </div>
+          </div>
         </div>
       </div>
     </div>
@@ -869,6 +873,9 @@
           <tbody id="adminUsersBody"></tbody>
         </table>
       </div>
+      <h3 style="margin:24px 0 12px">🧹 Transaction Management</h3>
+      <p style="color:var(--text2);font-size:.85rem;margin-bottom:12px">Admin only • Remove completed/cancelled transactions when finished.</p>
+      <div class="card"><table><thead><tr><th>ID</th><th>Item</th><th>Buyer</th><th>Seller</th><th>Status</th><th>Actions</th></tr></thead><tbody id="adminTxBody"></tbody></table></div>
     </div>
   </main>
 </div>
@@ -2351,6 +2358,11 @@ function saveTransactions(arr) {
   syncPublicTransactions(arr);
 }
 
+async function deletePublicTransaction(txId) {
+  const { error } = await supabaseClient.from('public_transactions').delete().eq('id', String(txId));
+  if (error) throw error;
+}
+
 function startMiddleman() {
   if (!currentListing || !currentUser) return;
   if (currentListing.seller === currentUser.username) {
@@ -2514,6 +2526,7 @@ function openGc(txId) {
   // MM-only controls
   const mmActions = document.getElementById('gcMmOnlyActions');
   const btnClose = document.getElementById('btnCloseGc');
+  const adminActions = document.getElementById('gcAdminOnlyActions');
   const gcActions = document.getElementById('gcActions');
   if (isAssignedMm(currentTx)) {
     mmActions.style.display = 'block';
@@ -2523,6 +2536,7 @@ function openGc(txId) {
     mmActions.style.display = 'none';
     if (gcActions) gcActions.style.display = ended ? 'none' : 'block';
   }
+  if (adminActions) adminActions.style.display = isAdmin() && ended ? 'block' : 'none';
 
   const msgs = document.getElementById('gcMessages');
   msgs.innerHTML = (currentTx.messages || []).map(m => {
@@ -2651,6 +2665,18 @@ function closeGcByMiddleman() {
   renderTransactions();
   renderMmActive();
   showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
+}
+
+async function closeGcByAdmin() {
+  if (!currentTx || !isAdmin()) return showToast('Access denied','Admin only.');
+  if (!['COMPLETED','CANCELLED'].includes(currentTx.status)) return showToast('Not yet','The transaction must be completed or cancelled first.');
+  if (!confirm('Remove this finished GC?')) return;
+  const id=currentTx.id;
+  try { await deletePublicTransaction(id); } catch(e) { console.error(e); showToast('Error','Could not remove the public transaction.'); return; }
+  save(KEYS.transactions,getTransactions().filter(t=>String(t.id)!==String(id)));
+  currentTx=null; localStorage.removeItem(KEYS.uiTx);
+  closeModal('gcModal'); renderTransactions(); renderGcList(); renderMmActive(); renderAdmin();
+  showToast('GC removed',`Transaction #${id} was removed by Admin.`);
 }
 
 // ========== PAYMENT ==========
@@ -2943,6 +2969,28 @@ function setUserRole(username, newRole) {
   }
 }
 
+async function removeTransactionByAdmin(txId) {
+  if (!isAdmin()) return showToast('Access denied','Admin only.');
+  const tx=getTransactions().find(t=>String(t.id)===String(txId));
+  if (!tx) return;
+  if (!['COMPLETED','CANCELLED'].includes(tx.status)) return showToast('Not yet','Only completed or cancelled transactions can be removed.');
+  if (!confirm(`Remove transaction #${txId}?`)) return;
+  try { await deletePublicTransaction(txId); } catch(e) { console.error(e); showToast('Error','Could not remove the public transaction.'); return; }
+  save(KEYS.transactions,getTransactions().filter(t=>String(t.id)!==String(txId)));
+  renderTransactions(); renderGcList(); renderMmActive(); renderAdmin();
+  showToast('Transaction removed',`#${txId} was removed.`);
+}
+
+function toggleBanUserByAdmin(username) {
+  if (!isAdmin()) return showToast('Access denied','Admin only.');
+  const users=load(KEYS.users,[]), u=users.find(x=>x.username===username);
+  if (!u || username==='fynx') return;
+  if (u.banned) { if(!confirm(`Unban @${username}?`)) return; u.banned=false; u.banReason=''; }
+  else { const reason=prompt(`Ban @${username}? Reason:`,'Trolling / spam'); if(reason===null)return; u.banned=true; u.banReason=reason||'Moderation violation'; }
+  save(KEYS.users,users); renderAdmin();
+  showToast(u.banned?'User banned':'User unbanned',`@${username} ${u.banned?'has been banned.':'can access the site again.'}`);
+}
+
 function renderAdmin() {
   if (!isAdmin()) return;
   const users = load(KEYS.users, []);
@@ -2981,11 +3029,9 @@ function renderAdmin() {
     if (role === 'admin') roleBadge = '<span class="role-badge role-mm">ADMIN</span>';
     let actions = '—';
     if (u.username !== currentUser.username || role !== 'admin') {
-      if (role === 'user') {
-        actions = `<button class="btn btn-primary btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','middleman')">Make Middleman</button>`;
-      } else if (role === 'middleman') {
-        actions = `<button class="btn btn-outline btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','user')">Remove MM</button>`;
-      }
+      if (role === 'user') actions = `<button class="btn btn-primary btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','middleman')">Make Middleman</button>`;
+      else if (role === 'middleman') actions = `<button class="btn btn-outline btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','user')">Remove MM</button>`;
+      if (role !== 'admin') actions += ` <button class="btn btn-danger btn-sm" onclick="toggleBanUserByAdmin('${escapeHtml(u.username)}')">${u.banned ? 'Unban' : 'Ban'}</button>`;
     }
     return `
     <tr>
@@ -2996,6 +3042,8 @@ function renderAdmin() {
       <td>${actions}</td>
     </tr>`;
   }).join('');
+  const adminTxBody=document.getElementById('adminTxBody');
+  if(adminTxBody){ const txs=getTransactions(); adminTxBody.innerHTML=txs.length?txs.map(t=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.item||'')}</td><td>@${escapeHtml(t.buyer||'')}</td><td>@${escapeHtml(t.seller||'')}</td><td>${escapeHtml(t.status||'')}</td><td>${['COMPLETED','CANCELLED'].includes(t.status)?`<button class="btn btn-danger btn-sm" onclick="removeTransactionByAdmin('${escapeHtml(t.id)}')">✕ Remove</button>`:'Active'}</td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">No transactions.</td></tr>'; }
   refreshAdminAppBadge();
 }
 
