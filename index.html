@@ -1,0 +1,2203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GameTrade PH — Buy & Sell Gaming Marketplace</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg2: #12151c;
+    --bg3: #1a1e28;
+    --bg4: #222833;
+    --accent: #00e5a0;
+    --accent2: #00b4d8;
+    --accent3: #7b2cbf;
+    --danger: #ff4757;
+    --warning: #ffa502;
+    --text: #e8eaed;
+    --text2: #9aa0a6;
+    --border: #2a2f3a;
+    --success: #2ed573;
+    --gold: #ffd700;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .topnav {
+    position: fixed; top:0; left:0; right:0; height:60px;
+    background: rgba(11,13,18,0.95); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; z-index:1000;
+  }
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight:700; font-size:1.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    letter-spacing:1px; cursor:pointer;
+  }
+  .logo span { color: var(--accent); -webkit-text-fill-color: var(--accent); }
+  .nav-right { display:flex; align-items:center; gap:12px; }
+  .nav-btn {
+    background: var(--bg3); border:1px solid var(--border);
+    color:var(--text); padding:8px 14px; border-radius:8px;
+    cursor:pointer; font-size:0.85rem; font-weight:500;
+    transition: all .2s;
+  }
+  .nav-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .nav-btn.primary {
+    background: linear-gradient(135deg, var(--accent), #00c48c);
+    color:#0b0d12; border:none; font-weight:600;
+  }
+  .nav-btn.primary:hover { filter:brightness(1.1); }
+  .avatar {
+    width:36px; height:36px; border-radius:50%;
+    background: linear-gradient(135deg, var(--accent3), var(--accent2));
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; cursor:pointer; position:relative; font-size:0.85rem;
+  }
+  .notif-dot {
+    position:absolute; top:-2px; right:-2px;
+    width:12px; height:12px; background:var(--danger);
+    border-radius:50%; border:2px solid var(--bg);
+  }
+  .layout { display:flex; margin-top:60px; min-height:calc(100vh - 60px); }
+  .sidebar {
+    width:240px; background:var(--bg2); border-right:1px solid var(--border);
+    padding:20px 12px; position:fixed; top:60px; bottom:0; overflow-y:auto;
+  }
+  .side-item {
+    display:flex; align-items:center; gap:12px;
+    padding:12px 14px; border-radius:10px; cursor:pointer;
+    color:var(--text2); font-weight:500; font-size:0.92rem;
+    transition: all .15s; margin-bottom:4px;
+  }
+  .side-item:hover, .side-item.active { background: var(--bg3); color:var(--text); }
+  .side-item.active { border-left:3px solid var(--accent); }
+  .side-item .icon { font-size:1.15rem; width:24px; text-align:center; }
+  .side-section {
+    font-size:0.7rem; text-transform:uppercase; letter-spacing:1.2px;
+    color:var(--text2); padding:16px 14px 6px; font-weight:600;
+  }
+  .main { margin-left:240px; flex:1; padding:28px 32px; max-width:1400px; }
+  .page { display:none; }
+  .page.active { display:block; animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  h1 { font-size:1.7rem; font-weight:700; margin-bottom:6px; }
+  .subtitle { color:var(--text2); margin-bottom:24px; font-size:0.95rem; }
+  .grid { display:grid; gap:20px; }
+  .grid-4 { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .card {
+    background: var(--bg2); border:1px solid var(--border);
+    border-radius:14px; overflow:hidden; transition: all .2s;
+  }
+  .card:hover { border-color:#3a4150; transform:translateY(-2px); }
+  .card-img {
+    height:140px; background: linear-gradient(135deg, #1a1e28, #2a1a3a);
+    display:flex; align-items:center; justify-content:center;
+    font-size:3rem; position:relative; overflow:hidden;
+  }
+  .card-img img {
+    width:100%; height:100%; object-fit:cover; display:block;
+  }
+  .card-badge {
+    position:absolute; top:10px; left:10px;
+    background:rgba(0,0,0,0.7); color:var(--accent);
+    font-size:0.7rem; padding:3px 8px; border-radius:6px; font-weight:600;
+    z-index:1;
+  }
+  .listing-img-preview {
+    margin-top:10px; border-radius:10px; overflow:hidden;
+    border:1px solid var(--border); max-height:180px; display:none;
+    position:relative;
+  }
+  .listing-img-preview.show { display:block; }
+  .listing-img-preview img {
+    width:100%; max-height:180px; object-fit:cover; display:block;
+  }
+  .listing-img-preview .remove-img {
+    position:absolute; top:8px; right:8px;
+    background:rgba(0,0,0,0.75); color:#fff; border:none;
+    border-radius:50%; width:28px; height:28px; cursor:pointer;
+    font-size:1rem; line-height:1; display:flex; align-items:center; justify-content:center;
+  }
+  .listing-img-preview .remove-img:hover { background:var(--danger); }
+  .detail-listing-img {
+    width:100%; max-height:220px; object-fit:cover; border-radius:12px;
+    margin-bottom:14px; border:1px solid var(--border);
+  }
+  .card-body { padding:16px; }
+  .card-title { font-weight:600; font-size:1rem; margin-bottom:6px; }
+  .card-meta { font-size:0.8rem; color:var(--text2); margin-bottom:10px; }
+  .price { font-size:1.25rem; font-weight:700; color:var(--accent); }
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 18px; border-radius:9px; font-weight:600; font-size:0.88rem;
+    cursor:pointer; border:none; transition: all .15s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #00c48c);
+    color:#0b0d12;
+  }
+  .btn-primary:hover { filter:brightness(1.08); }
+  .btn-outline {
+    background:transparent; border:1px solid var(--border); color:var(--text);
+  }
+  .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-danger { background:var(--danger); color:#fff; }
+  .btn-sm { padding:7px 12px; font-size:0.8rem; }
+  .btn-block { width:100%; }
+  .status {
+    display:inline-block; padding:4px 10px; border-radius:20px;
+    font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .st-waiting { background:#3d2e00; color:#ffc107; }
+  .st-joined { background:#0d3b2e; color:#00e5a0; }
+  .st-pending { background:#1a2a4a; color:#4dabf7; }
+  .st-confirmed { background:#0d3b2e; color:#2ed573; }
+  .st-delivering { background:#2a1a4a; color:#c77dff; }
+  .st-received { background:#1a3a2a; color:#69db7c; }
+  .st-verify { background:#3a2a1a; color:#ffd43b; }
+  .st-confirm { background:#1a3a3a; color:#22b8cf; }
+  .st-completed { background:#0d3b1a; color:#51cf66; }
+  .st-cancelled { background:#3a1a1a; color:#ff6b6b; }
+  .st-disputed { background:#3a1a2a; color:#f06595; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:12px 14px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--text2); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; }
+  tr:hover td { background:var(--bg3); }
+  .gc-container { display:flex; height:calc(100vh - 160px); gap:0; border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+  .gc-sidebar { width:280px; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+  .gc-list { flex:1; overflow-y:auto; }
+  .gc-item {
+    padding:14px 16px; border-bottom:1px solid var(--border); cursor:pointer;
+    transition: background .15s;
+  }
+  .gc-item:hover, .gc-item.active { background:var(--bg3); }
+  .gc-item .gc-title { font-weight:600; font-size:0.9rem; }
+  .gc-item .gc-sub { font-size:0.75rem; color:var(--text2); margin-top:3px; }
+  .gc-main { flex:1; display:flex; flex-direction:column; background:var(--bg); }
+  .gc-header {
+    padding:14px 20px; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--bg2);
+  }
+  .gc-messages { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .msg {
+    max-width:70%; padding:10px 14px; border-radius:12px; font-size:0.9rem;
+    line-height:1.45;
+  }
+  .msg.me { align-self:flex-end; background: linear-gradient(135deg, #00a87a, #008f68); color:#fff; border-bottom-right-radius:4px; }
+  .msg.them { align-self:flex-start; background:var(--bg3); border-bottom-left-radius:4px; }
+  .msg.system { align-self:center; background:transparent; color:var(--text2); font-size:0.8rem; max-width:90%; text-align:center; }
+  .msg .msg-meta { font-size:0.7rem; opacity:0.7; margin-top:4px; }
+  .gc-input {
+    padding:14px 16px; border-top:1px solid var(--border); background:var(--bg2);
+    display:flex; gap:10px;
+  }
+  .gc-input input {
+    flex:1; background:var(--bg3); border:1px solid var(--border);
+    border-radius:10px; padding:12px 16px; color:var(--text); font-size:0.9rem;
+    outline:none;
+  }
+  .gc-input input:focus { border-color:var(--accent); }
+  .gc-info-panel {
+    width:300px; background:var(--bg2); border-left:1px solid var(--border);
+    padding:18px; overflow-y:auto;
+  }
+  .info-row { margin-bottom:14px; }
+  .info-label { font-size:0.72rem; color:var(--text2); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:3px; }
+  .info-value { font-weight:500; }
+  .modal-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px);
+    z-index:2000; display:none; align-items:center; justify-content:center;
+  }
+  .modal-overlay.show { display:flex; }
+  .modal {
+    background:var(--bg2); border:1px solid var(--border); border-radius:16px;
+    width:90%; max-width:440px; max-height:90vh; overflow-y:auto;
+    animation: modalIn .25s ease;
+  }
+  .modal.wide { max-width:520px; }
+  @keyframes modalIn { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:none} }
+  .modal-header {
+    padding:18px 22px; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .modal-header h3 { font-size:1.15rem; }
+  .modal-close { background:none; border:none; color:var(--text2); font-size:1.4rem; cursor:pointer; }
+  .modal-body { padding:22px; }
+  .modal-footer { padding:16px 22px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+  .form-group { margin-bottom:16px; }
+  .form-group label { display:block; font-size:0.82rem; color:var(--text2); margin-bottom:6px; font-weight:500; }
+  .form-control {
+    width:100%; background:var(--bg3); border:1px solid var(--border);
+    border-radius:9px; padding:11px 14px; color:var(--text); font-size:0.9rem;
+    outline:none;
+  }
+  .form-control:focus { border-color:var(--accent); }
+  .toast-container { position:fixed; top:80px; right:24px; z-index:3000; display:flex; flex-direction:column; gap:10px; }
+  .toast {
+    background:var(--bg3); border:1px solid var(--border); border-left:4px solid var(--accent);
+    border-radius:10px; padding:14px 18px; min-width:300px; max-width:380px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.4); animation: toastIn .3s ease;
+  }
+  @keyframes toastIn { from{opacity:0;transform:translateX(40px)} to{opacity:1;transform:none} }
+  .toast-title { font-weight:600; margin-bottom:4px; }
+  .toast-body { font-size:0.85rem; color:var(--text2); }
+  .profile-header {
+    display:flex; gap:24px; align-items:center; margin-bottom:28px;
+    background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:24px;
+  }
+  .profile-avatar {
+    width:90px; height:90px; border-radius:50%;
+    background: linear-gradient(135deg, var(--accent3), var(--accent2));
+    display:flex; align-items:center; justify-content:center; font-size:2.2rem; font-weight:700;
+  }
+  .verified { color:var(--accent); font-size:0.9rem; }
+  .rating { color:var(--gold); }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
+  .stat-card {
+    background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px;
+  }
+  .stat-value { font-size:1.6rem; font-weight:700; color:var(--accent); }
+  .stat-label { font-size:0.8rem; color:var(--text2); margin-top:4px; }
+  .pay-methods { display:flex; gap:12px; flex-wrap:wrap; margin:16px 0; }
+  .pay-method {
+    flex:1; min-width:110px; padding:14px; border:2px solid var(--border);
+    border-radius:12px; text-align:center; cursor:pointer; transition:all .15s;
+  }
+  .pay-method:hover, .pay-method.selected { border-color:var(--accent); background:rgba(0,229,160,0.08); }
+  .pay-method .pm-icon { font-size:1.6rem; margin-bottom:6px; }
+  .pay-method .pm-name { font-weight:600; font-size:0.9rem; }
+  .tag { display:inline-block; background:var(--bg4); color:var(--text2); font-size:0.72rem; padding:3px 8px; border-radius:6px; margin-right:4px; }
+  .divider { height:1px; background:var(--border); margin:20px 0; }
+  .empty { text-align:center; padding:60px 20px; color:var(--text2); }
+  .empty .icon { font-size:3rem; margin-bottom:12px; opacity:0.5; }
+  .role-badge {
+    display:inline-block; padding:2px 8px; border-radius:6px; font-size:0.7rem; font-weight:600;
+  }
+  .role-buyer { background:#1a2a4a; color:#74c0fc; }
+  .role-seller { background:#2a1a3a; color:#da77f2; }
+  .role-mm { background:#0d3b2e; color:#00e5a0; }
+  /* AUTH SCREENS */
+  .auth-screen {
+    position:fixed; inset:0; background:var(--bg); z-index:5000;
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column; padding:20px;
+  }
+  .auth-screen.hidden { display:none; }
+  .auth-box {
+    background:var(--bg2); border:1px solid var(--border); border-radius:18px;
+    padding:36px 32px; width:100%; max-width:400px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+  }
+  .auth-logo {
+    font-family: 'Orbitron', sans-serif; font-weight:700; font-size:1.6rem;
+    text-align:center; margin-bottom:8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .auth-sub { text-align:center; color:var(--text2); font-size:0.9rem; margin-bottom:28px; }
+  .auth-tabs { display:flex; gap:8px; margin-bottom:24px; }
+  .auth-tab {
+    flex:1; padding:10px; text-align:center; border-radius:9px;
+    cursor:pointer; font-weight:600; font-size:0.9rem;
+    background:var(--bg3); color:var(--text2); border:1px solid var(--border);
+  }
+  .auth-tab.active {
+    background: linear-gradient(135deg, var(--accent), #00c48c);
+    color:#0b0d12; border:none;
+  }
+  .auth-error {
+    background:rgba(255,71,87,0.15); border:1px solid var(--danger);
+    color:#ff6b6b; padding:10px 14px; border-radius:8px; font-size:0.85rem;
+    margin-bottom:16px; display:none;
+  }
+  .auth-error.show { display:block; }
+  .user-menu {
+    position:absolute; top:48px; right:0; background:var(--bg3);
+    border:1px solid var(--border); border-radius:10px; min-width:180px;
+    display:none; z-index:1100; overflow:hidden;
+  }
+  .user-menu.show { display:block; }
+  .user-menu-item {
+    padding:12px 16px; cursor:pointer; font-size:0.88rem;
+    border-bottom:1px solid var(--border);
+  }
+  .user-menu-item:hover { background:var(--bg4); color:var(--accent); }
+  .user-menu-item:last-child { border-bottom:none; color:#ff6b6b; }
+  /* Floating + button (create post) */
+  .fab {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #00c48c);
+    color: #0b0d12;
+    font-size: 2rem;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0, 229, 160, 0.45);
+    z-index: 1500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: transform .15s, box-shadow .15s;
+    line-height: 1;
+  }
+  .fab:hover { transform: scale(1.08); box-shadow: 0 8px 28px rgba(0, 229, 160, 0.55); }
+  .fab.show { display: flex; }
+  .menu-btn {
+    display: none;
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px; border-radius: 8px;
+    cursor: pointer; font-size: 1.2rem; line-height: 1;
+  }
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 900; top: 60px;
+  }
+  .sidebar-overlay.show { display: block; }
+  @media (max-width:900px) {
+    .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+    .sidebar {
+      display: block;
+      transform: translateX(-100%);
+      transition: transform .25s ease;
+      z-index: 950;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .main { margin-left: 0; padding: 20px 16px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .gc-container { flex-direction: column; height: auto; }
+    .gc-sidebar, .gc-info-panel { width: 100%; }
+    .fab { bottom: 20px; right: 20px; width: 56px; height: 56px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== AUTH SCREEN ========== -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-box">
+    <div class="auth-logo">Game<span style="color:#00e5a0;-webkit-text-fill-color:#00e5a0">Trade</span> PH</div>
+    <p class="auth-sub">Buy & Sell Gaming Marketplace • Philippines</p>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tabLogin" onclick="switchAuth('login')">Login</div>
+      <div class="auth-tab" id="tabSignup" onclick="switchAuth('signup')">Sign Up</div>
+    </div>
+    <div class="auth-error" id="authError"></div>
+    <!-- LOGIN -->
+    <div id="loginForm">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" class="form-control" id="loginUser" placeholder="Enter username" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" class="form-control" id="loginPass" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" onclick="doLogin()" style="margin-top:8px">Login</button>
+      <p style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text2)">
+        or create new account
+      </p>
+    </div>
+    <!-- SIGNUP -->
+    <div id="signupForm" style="display:none">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" class="form-control" id="signupUser" placeholder="letters, numbers, _ only" autocomplete="username" onkeydown="if(event.key==='Enter')doSignup()">
+      </div>
+      <div class="form-group">
+        <label>Display Name</label>
+        <input type="text" class="form-control" id="signupName" placeholder="e.g. Juan Dela Cruz">
+      </div>
+      <div class="form-group">
+        <label>Location (optional)</label>
+        <select class="form-control" id="signupLoc">
+          <option value="">Select city</option>
+          <option>Metro Manila</option>
+          <option>Quezon City</option>
+          <option>Manila</option>
+          <option>Cebu</option>
+          <option>Davao</option>
+          <option>Cavite</option>
+          <option>Laguna</option>
+          <option>Other PH</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" class="form-control" id="signupPass" placeholder="Min 6 characters" autocomplete="new-password" onkeydown="if(event.key==='Enter')doSignup()">
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <input type="password" class="form-control" id="signupPass2" placeholder="Repeat password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doSignup()">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" onclick="doSignup()" style="margin-top:8px">Create Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOP NAV -->
+<nav class="topnav" id="topNav" style="display:none">
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="menu-btn" id="menuBtn" onclick="toggleSidebar()" title="Menu">☰</button>
+    <div class="logo" onclick="showPage('marketplace')">Game<span>Trade</span> <small style="font-size:0.65rem;color:var(--text2);font-family:Inter;letter-spacing:0">PH</small></div>
+  </div>
+  <div class="nav-right">
+    <button class="nav-btn" onclick="showPage('support')">Help</button>
+    <button class="nav-btn primary" onclick="showPage('marketplace')">Marketplace</button>
+    <button class="nav-btn" onclick="logout()" style="border-color:var(--danger);color:#ff6b6b">Logout</button>
+    <div style="position:relative">
+      <div class="avatar" id="navAvatar" onclick="toggleUserMenu()" title="Profile menu">
+        JD
+        <span class="notif-dot" id="notifDot" style="display:none"></span>
+      </div>
+      <div class="user-menu" id="userMenu">
+        <div class="user-menu-item" onclick="showPage('profile');closeUserMenu()">👤 My Profile</div>
+        <div class="user-menu-item" onclick="showPage('my-listings');closeUserMenu()">📦 My Listings</div>
+        <div class="user-menu-item" onclick="logout()">🚪 Logout</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- LAYOUT -->
+<div class="layout" id="appLayout" style="display:none">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-item active" data-page="marketplace" onclick="showPage('marketplace')">
+      <span class="icon">🎮</span> Marketplace
+    </div>
+    <div class="side-item" data-page="my-listings" onclick="showPage('my-listings')">
+      <span class="icon">📦</span> My Listings
+    </div>
+    <div class="side-item" data-page="transactions" onclick="showPage('transactions')">
+      <span class="icon">🔄</span> Transactions
+    </div>
+    <div class="side-item" data-page="gc" onclick="showPage('gc')">
+      <span class="icon">💬</span> Transaction GCs
+    </div>
+    <div id="mmSidebarSection">
+      <div class="side-section">Middleman</div>
+      <div class="side-item" data-page="mm-dashboard" onclick="showPage('mm-dashboard')">
+        <span class="icon">🛡</span> Middleman Panel
+      </div>
+      <div class="side-item" data-page="mm-requests" onclick="showPage('mm-requests')">
+        <span class="icon">🔔</span> Pending Requests
+        <span id="mmNotifBadge" style="display:none;margin-left:auto;background:var(--danger);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center">0</span>
+      </div>
+    </div>
+    <div class="side-section">Account</div>
+    <div class="side-item" data-page="profile" onclick="showPage('profile')">
+      <span class="icon">👤</span> My Profile
+    </div>
+    <div class="side-item" data-page="support" onclick="showPage('support')">
+      <span class="icon">🛟</span> Support
+    </div>
+    <div id="adminSidebarSection">
+      <div class="side-section">Admin</div>
+      <div class="side-item" data-page="admin" onclick="showPage('admin')">
+        <span class="icon">⚙️</span> Admin Dashboard
+        <span id="adminAppBadge" style="display:none;margin-left:auto;background:var(--danger);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center">0</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- MARKETPLACE -->
+    <div class="page active" id="page-marketplace">
+      <h1>Marketplace</h1>
+      <p class="subtitle">Buy & sell game accounts, skins & items • Post your own listings • Prices in ₱ • PH Middleman protected</p>
+      <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
+        <select class="form-control" style="width:180px" id="filterGame" onchange="renderListings()">
+          <option value="">All Games</option>
+          <option>Mobile Legends: Bang Bang</option>
+          <option>Call of Duty: Mobile</option>
+          <option>Roblox</option>
+          <option>Valorant</option>
+          <option>Genshin Impact</option>
+          <option>Free Fire</option>
+          <option>PUBG Mobile</option>
+          <option>League of Legends</option>
+          <option>Minecraft</option>
+          <option>NBA 2K</option>
+        </select>
+        <select class="form-control" style="width:140px" id="filterServer" onchange="renderListings()">
+          <option value="">All Servers</option>
+          <option>Philippines</option>
+          <option>Garena</option>
+          <option>Global</option>
+          <option>Asia</option>
+        </select>
+        <input type="text" class="form-control" style="width:220px" id="searchInput" placeholder="Search items..." oninput="renderListings()">
+      </div>
+      <div class="grid grid-4" id="listingsGrid"></div>
+    </div>
+
+    <!-- MY LISTINGS -->
+    <div class="page" id="page-my-listings">
+      <h1>My Listings</h1>
+      <p class="subtitle">Manage your items for sale • When you post, it will immediately appear in the Marketplace</p>
+      <button class="btn btn-primary" style="margin-bottom:20px" onclick="openModal('newListingModal')">+ Create Listing</button>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>Item</th><th>Game</th><th>Price</th><th>Status</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="myListingsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TRANSACTIONS -->
+    <div class="page" id="page-transactions">
+      <h1>My Transactions</h1>
+      <p class="subtitle">All your buys and sells • Times in Philippine Standard Time (PHT)</p>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Item</th><th>Role</th><th>Amount</th><th>Status</th><th>Date (PHT)</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="txBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- GC -->
+    <div class="page" id="page-gc">
+      <h1>Transaction Group Chats</h1>
+      <p class="subtitle">Private GCs for active deals • Only Buyer, Seller & Middleman can access</p>
+      <div class="gc-container">
+        <div class="gc-sidebar">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--border);font-weight:600">Active GCs</div>
+          <div class="gc-list" id="gcList"></div>
+        </div>
+        <div class="gc-main">
+          <div class="gc-header">
+            <div>
+              <div style="font-weight:600" id="gcTitle">Select a transaction GC</div>
+              <div style="font-size:0.8rem;color:var(--text2)" id="gcMembers"></div>
+            </div>
+            <span class="status" id="gcStatusBadge"></span>
+          </div>
+          <div class="gc-messages" id="gcMessages">
+            <div class="empty"><div class="icon">💬</div>Select a GC to view conversation</div>
+          </div>
+          <div class="gc-input" id="gcInputArea" style="display:none">
+            <input type="text" id="gcInput" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendGcMsg()">
+            <button class="btn btn-primary" onclick="sendGcMsg()">Send</button>
+          </div>
+        </div>
+        <div class="gc-info-panel" id="gcInfoPanel" style="display:none">
+          <h4 style="margin-bottom:16px">Transaction Info</h4>
+          <div class="info-row"><div class="info-label">Transaction ID</div><div class="info-value" id="infoId">—</div></div>
+          <div class="info-row"><div class="info-label">Item</div><div class="info-value" id="infoItem">—</div></div>
+          <div class="info-row"><div class="info-label">Game</div><div class="info-value" id="infoGame">—</div></div>
+          <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" id="infoPrice">—</div></div>
+          <div class="info-row"><div class="info-label">Middleman Fee</div><div class="info-value" id="infoFee">—</div></div>
+          <div class="info-row"><div class="info-label">Total</div><div class="info-value" style="color:var(--accent);font-weight:700" id="infoTotal">—</div></div>
+          <div class="info-row"><div class="info-label">Status</div><div class="info-value" id="infoStatus">—</div></div>
+          <div class="divider"></div>
+          <div class="info-row"><div class="info-label">Buyer</div><div class="info-value" id="infoBuyer">—</div></div>
+          <div class="info-row"><div class="info-label">Seller</div><div class="info-value" id="infoSeller">—</div></div>
+          <div class="info-row"><div class="info-label">Middleman</div><div class="info-value" id="infoMM">—</div></div>
+          <div class="divider"></div>
+          <div id="gcActions">
+            <button class="btn btn-primary btn-block btn-sm" onclick="openPaymentModal()">Simulate Payment</button>
+            <button class="btn btn-outline btn-block btn-sm" style="margin-top:8px" onclick="advanceStatus()">Advance Status</button>
+          </div>
+          <div id="gcMmOnlyActions" style="margin-top:10px;display:none">
+            <button class="btn btn-outline btn-block btn-sm" style="border-color:var(--danger);color:#ff6b6b" onclick="cancelTransactionByMm()">✕ Cancel Transaction</button>
+            <button class="btn btn-primary btn-block btn-sm" style="margin-top:8px;display:none" id="btnCloseGc" onclick="closeGcByMiddleman()">🗑 Finish & Delete GC</button>
+            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">Privacy: Only the Buyer, Seller, and assigned Middleman have access. Only the Middleman can finish/delete the GC when COMPLETED or CANCELLED.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MM DASHBOARD -->
+    <div class="page" id="page-mm-dashboard">
+      <h1>Middleman Panel</h1>
+      <p class="subtitle">You are an Official Middleman — you are responsible for the deals assigned or claimed by you. Set your status: AVAILABLE = ready to accept deals.</p>
+      <div class="stats">
+        <div class="stat-card"><div class="stat-value" id="mmActive">0</div><div class="stat-label">Active Deals</div></div>
+        <div class="stat-card"><div class="stat-value" id="mmCompleted">0</div><div class="stat-label">Completed</div></div>
+        <div class="stat-card"><div class="stat-value" id="mmFees">₱0</div><div class="stat-label">Fees Earned</div></div>
+        <div class="stat-card">
+          <div class="stat-value" style="font-size:1.1rem">
+            <select class="form-control" id="mmStatus" onchange="updateMmStatus()" style="background:var(--bg3);border:none;color:var(--accent);font-weight:700">
+              <option value="AVAILABLE">AVAILABLE</option>
+              <option value="BUSY">BUSY</option>
+              <option value="OFFLINE">OFFLINE</option>
+            </select>
+          </div>
+          <div class="stat-label">Your Status</div>
+        </div>
+      </div>
+      <h3 style="margin-bottom:14px">Active Transactions</h3>
+      <div class="card">
+        <table>
+          <thead><tr><th>ID</th><th>Item</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="mmActiveBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MM REQUESTS -->
+    <div class="page" id="page-mm-requests">
+      <h1>Pending Middleman Requests</h1>
+      <p class="subtitle">Bagong Middleman Request • Claim deals that need a trusted PH Middleman</p>
+      <div id="mmRequestsList"></div>
+    </div>
+
+    <!-- PROFILE -->
+    <div class="page" id="page-profile">
+      <h1>My Profile</h1>
+      <div class="profile-header">
+        <div style="position:relative">
+          <div class="profile-avatar" id="profAvatar">JD</div>
+          <label for="pfpInput" style="display:inline-flex;align-items:center;justify-content:center;position:absolute;right:-6px;bottom:-6px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#0b0d12;cursor:pointer;font-weight:800;border:2px solid var(--bg2)" title="Change profile picture">✎</label>
+          <input type="file" id="pfpInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="changeProfilePicture(this)">
+        </div>
+        <div>
+          <h2 id="profName">User <span class="verified">✓ Verified</span></h2>
+          <div style="margin:6px 0;color:var(--text2)" id="profLoc">📍 Philippines</div>
+          <div class="rating">★ 5.0 Seller Rating &nbsp;|&nbsp; ★ 5.0 Middleman Rating</div>
+          <div style="margin-top:8px;font-size:0.9rem">
+            <span class="tag" id="profJoined">Joined today</span>
+            <span class="tag" id="profRoleTag">User</span>
+            <span class="tag">GCash • Maya</span>
+          </div>
+        </div>
+      </div>
+      <div id="mmRoleInfo" style="margin-bottom:20px"></div>
+      <h3 style="margin-bottom:12px">Recent Reviews</h3>
+      <div class="card" style="padding:18px">
+        <div style="color:var(--text2);font-size:0.9rem">No reviews yet. Complete transactions to receive reviews.</div>
+      </div>
+      <div style="margin-top:28px">
+        <button class="btn btn-outline" onclick="logout()" style="border-color:var(--danger);color:#ff6b6b">🚪 Logout</button>
+      </div>
+    </div>
+
+    <!-- SUPPORT -->
+    <div class="page" id="page-support">
+      <h1>Help Center</h1>
+      <p class="subtitle">Support timestamps use Philippine Standard Time (PHT)</p>
+      <div class="grid grid-3" style="margin-bottom:28px">
+        <div class="card" style="padding:20px;cursor:pointer" onclick="showToast('Category','Buy & Sell help articles')">
+          <div style="font-size:1.8rem;margin-bottom:8px">🛒</div>
+          <strong>Buy & Sell</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">How to list, buy, and complete deals</p>
+        </div>
+        <div class="card" style="padding:20px;cursor:pointer" onclick="showToast('Category','Middleman help')">
+          <div style="font-size:1.8rem;margin-bottom:8px">🛡</div>
+          <strong>Middleman</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">How the PH Middleman system works</p>
+        </div>
+        <div class="card" style="padding:20px;cursor:pointer" onclick="showToast('Category','Payment help')">
+          <div style="font-size:1.8rem;margin-bottom:8px">💳</div>
+          <strong>Payment</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">GCash, Maya, Bank Transfer</p>
+        </div>
+        <div class="card" style="padding:20px;cursor:pointer">
+          <div style="font-size:1.8rem;margin-bottom:8px">👤</div>
+          <strong>Account</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">Verification, security, ratings</p>
+        </div>
+        <div class="card" style="padding:20px;cursor:pointer">
+          <div style="font-size:1.8rem;margin-bottom:8px">⚖️</div>
+          <strong>Dispute</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">File a dispute or report issues</p>
+        </div>
+        <div class="card" style="padding:20px;cursor:pointer">
+          <div style="font-size:1.8rem;margin-bottom:8px">🚨</div>
+          <strong>Scam Report</strong>
+          <p style="color:var(--text2);font-size:0.85rem;margin-top:6px">Report suspected scams</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-primary" onclick="openModal('reportModal')">Report a Problem</button>
+        <button class="btn btn-outline" onclick="showToast('Support','A support agent will reply within 2 hours (PHT)')">Contact Support</button>
+      </div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="page" id="page-admin">
+      <h1>Admin Dashboard</h1>
+      <p class="subtitle">Philippines Middlemen • Fees • Reports</p>
+      <div class="stats">
+        <div class="stat-card"><div class="stat-value" id="admUsers">0</div><div class="stat-label">Registered Users</div></div>
+        <div class="stat-card"><div class="stat-value" id="admListings">0</div><div class="stat-label">Active Listings</div></div>
+        <div class="stat-card"><div class="stat-value" id="admTx">0</div><div class="stat-label">Transactions</div></div>
+        <div class="stat-card"><div class="stat-value">2</div><div class="stat-label">Open Disputes</div></div>
+      </div>
+      <h3 style="margin:20px 0 12px">Transaction Fees (Configurable)</h3>
+      <div class="card" style="padding:18px;margin-bottom:24px">
+        <div class="form-group">
+          <label>Middleman Fee Type</label>
+          <select class="form-control" id="feeType" style="max-width:240px">
+            <option value="fixed">Fixed Fee (₱)</option>
+            <option value="percent">Percentage (%)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fee Value</label>
+          <input type="number" class="form-control" id="feeValue" value="20" style="max-width:160px">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveFeeConfig()">Save Fee Configuration</button>
+        <p style="margin-top:10px;color:var(--text2);font-size:0.85rem">Current: Fixed ₱20 • Always shown as Item Price + Middleman Fee = Total</p>
+      </div>
+      <h3 style="margin-bottom:12px">📝 Middleman Applications (applications appear here)</h3>
+      <p style="color:var(--text2);font-size:0.85rem;margin-bottom:12px"><b>This is not the Pending Requests section.</b> Applications appear here when a user clicks Apply as Middleman on their Profile. You will Approve them.</p>
+      <div id="mmAppsList" style="margin-bottom:24px"></div>
+
+      <h3 style="margin-bottom:12px">Registered Users • Middleman Roles</h3>
+      <p style="color:var(--text2);font-size:0.85rem;margin-bottom:12px">You can also promote users manually via <b>Make Middleman</b>. Regular users will not see the MM notifier.</p>
+      <div class="card">
+        <table>
+          <thead><tr><th>Username</th><th>Display Name</th><th>Location</th><th>Role</th><th>Actions</th></tr></thead>
+          <tbody id="adminUsersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Floating + button — create post -->
+<button class="fab" id="fabBtn" onclick="openModal('newListingModal')" title="Create Listing">+</button>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="listingModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="lmTitle">Item Details</h3>
+      <button class="modal-close" onclick="closeModal('listingModal')">×</button>
+    </div>
+    <div class="modal-body"><div id="lmBody"></div></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('listingModal')">Close</button>
+      <button class="btn btn-primary" id="btnUseMiddleman" onclick="startMiddleman()">Use Middleman</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="paymentModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Simulate Payment (Prototype)</h3>
+      <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;color:var(--text2);font-size:0.9rem">Mock payment only. No real money is moved. Never enter real passwords, OTPs, or card numbers.</p>
+      <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" id="payItemPrice">₱450</div></div>
+      <div class="info-row"><div class="info-label">Middleman Fee</div><div class="info-value" id="payFee">₱20</div></div>
+      <div class="info-row"><div class="info-label">Total to Pay</div><div class="info-value" style="color:var(--accent);font-size:1.3rem;font-weight:700" id="payTotal">₱470</div></div>
+      <div class="divider"></div>
+      <label style="font-size:0.85rem;color:var(--text2)">Choose Philippine Payment Method</label>
+      <div class="pay-methods">
+        <div class="pay-method selected" data-method="GCash" onclick="selectPay(this)">
+          <div class="pm-icon">💙</div><div class="pm-name">GCash</div>
+        </div>
+        <div class="pay-method" data-method="Maya" onclick="selectPay(this)">
+          <div class="pm-icon">💜</div><div class="pm-name">Maya</div>
+        </div>
+        <div class="pay-method" data-method="Bank Transfer" onclick="selectPay(this)">
+          <div class="pm-icon">🏦</div><div class="pm-name">Bank Transfer</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Reference / Account Name (mock)</label>
+        <input type="text" class="form-control" placeholder="e.g. Juan Dela Cruz" id="payRef">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('paymentModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmPayment()">Confirm Payment (Simulate)</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newListingModal">
+  <div class="modal wide">
+    <div class="modal-header">
+      <h3>Create New Listing</h3>
+      <button class="modal-close" onclick="closeModal('newListingModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Game</label>
+        <select class="form-control" id="nlGame">
+          <option>Mobile Legends: Bang Bang</option>
+          <option>Call of Duty: Mobile</option>
+          <option>Roblox</option>
+          <option>Valorant</option>
+          <option>Genshin Impact</option>
+          <option>Free Fire</option>
+          <option>PUBG Mobile</option>
+          <option>League of Legends</option>
+          <option>Minecraft</option>
+          <option>NBA 2K</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Server / Region</label>
+        <select class="form-control" id="nlServer">
+          <option>Philippines</option>
+          <option>Garena</option>
+          <option>Global</option>
+          <option>Asia</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Title / Item Name</label>
+        <input type="text" class="form-control" id="nlTitle" placeholder="e.g. Mythic Glory Account — 200+ Skins">
+      </div>
+      <div class="form-group">
+        <label>Price (₱)</label>
+        <input type="number" class="form-control" id="nlPrice" placeholder="450" min="1">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea class="form-control" id="nlDesc" rows="3" placeholder="Details about the item..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Photo / Picture (optional)</label>
+        <input type="file" class="form-control" id="nlImage" accept="image/*" onchange="previewListingImage(this)" style="padding:8px">
+        <p style="font-size:0.75rem;color:var(--text2);margin-top:6px">You can choose the picture. JPG, PNG, o WebP • Max ~2MB recommended</p>
+        <div class="listing-img-preview" id="nlImagePreview">
+          <img id="nlImagePreviewImg" alt="Preview">
+          <button type="button" class="remove-img" onclick="clearListingImage()" title="Remove photo">×</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('newListingModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createListing()">Publish Listing</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Report a Problem</h3>
+      <button class="modal-close" onclick="closeModal('reportModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Category</label>
+        <select class="form-control">
+          <option>Buy & Sell</option>
+          <option>Middleman</option>
+          <option>Payment</option>
+          <option>Account</option>
+          <option>Dispute</option>
+          <option>Scam Report</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea class="form-control" rows="4" placeholder="Describe the issue..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('reportModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal('reportModal');showToast('Report submitted','Support will respond within 2 hours (PHT)')">Submit Report</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== STORAGE KEYS ==========
+const KEYS = {
+  users: 'gf_users',
+  session: 'gf_session',
+  listings: 'gf_listings',
+  transactions: 'gf_transactions',
+  fee: 'gf_fee',
+  mmApps: 'gf_mm_apps'
+};
+
+// ========== STATE ==========
+let currentUser = null;
+let currentListing = null;
+let currentTx = null;
+let mmStatus = 'AVAILABLE';
+let feeConfig = { type: 'fixed', value: 20 };
+let selectedPayMethod = 'GCash';
+let pendingListingImage = null; // data URL for new listing photo
+
+const statusClass = {
+  'WAITING FOR MIDDLEMAN': 'st-waiting',
+  'MIDDLEMAN JOINED': 'st-joined',
+  'PAYMENT PENDING': 'st-pending',
+  'PAYMENT CONFIRMED': 'st-confirmed',
+  'SELLER DELIVERING': 'st-delivering',
+  'ITEM RECEIVED': 'st-received',
+  'VERIFICATION': 'st-verify',
+  'BUYER CONFIRMATION': 'st-confirm',
+  'COMPLETED': 'st-completed',
+  'CANCELLED': 'st-cancelled',
+  'DISPUTED': 'st-disputed'
+};
+
+const statusFlow = [
+  'WAITING FOR MIDDLEMAN', 'MIDDLEMAN JOINED', 'PAYMENT PENDING', 'PAYMENT CONFIRMED',
+  'SELLER DELIVERING', 'ITEM RECEIVED', 'VERIFICATION', 'BUYER CONFIRMATION', 'COMPLETED'
+];
+
+const GAME_EMOJIS = {
+  'Mobile Legends: Bang Bang': '⚔️',
+  'Call of Duty: Mobile': '🔫',
+  'Roblox': '🧱',
+  'Valorant': '🎯',
+  'Genshin Impact': '🌀',
+  'Free Fire': '🔥',
+  'PUBG Mobile': '🪖',
+  'League of Legends': '⚔️',
+  'Minecraft': '⛏️',
+  'NBA 2K': '🏀'
+};
+
+// ========== STORAGE HELPERS ==========
+function load(key, def) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null || raw === undefined) return def;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('load failed', key, e);
+    return def;
+  }
+}
+function save(key, val) {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+    return true;
+  } catch (e) {
+    console.error('save failed', key, e);
+    const msg = (e && e.name === 'QuotaExceededError')
+      ? 'Storage full (too many photos). Delete some listings then try again.'
+      : 'Failed to save data. Check browser storage settings.';
+    try { showToast('Save error', msg); } catch (_) {}
+    return false;
+  }
+}
+
+// ========== INIT ==========
+function initApp() {
+  let users = load(KEYS.users, []);
+  // Migrate the old demo admin account to the new admin credentials.
+  // Use the new admin account only.
+  const oldAdmin = users.find(u => u.username === 'admin');
+  const fynxAdmin = users.find(u => u.username === 'fynx');
+  if (fynxAdmin) {
+    fynxAdmin.password = 'flyntrodriguez0919';
+    fynxAdmin.displayName = 'Fynx';
+    fynxAdmin.role = 'admin';
+  } else if (oldAdmin) {
+    oldAdmin.username = 'fynx';
+    oldAdmin.password = 'flyntrodriguez0919';
+    oldAdmin.displayName = 'Fynx';
+    oldAdmin.role = 'admin';
+  } else {
+    users.push({
+      username: 'fynx',
+      password: 'flyntrodriguez0919',
+      displayName: 'Fynx',
+      location: 'Metro Manila',
+      joined: getPHT(),
+      role: 'admin'
+    });
+  }
+  // Remove any duplicate/old admin account and persist the change.
+  users = users.filter(u => u.username !== 'admin');
+  save(KEYS.users, users);
+
+  // Marketplace starts EMPTY — no sample listings. Users create their own posts only.
+  // Force clear any old sample data
+  save(KEYS.listings, load(KEYS.listings, []).filter(l => l.seller && l.seller !== 'mlbbKing' && l.seller !== 'diamondPH' && l.seller !== 'starlightPH' && l.seller !== 'valoPH' && l.seller !== 'codmPro' && l.seller !== 'genshinPH' && l.seller !== 'robloxPH' && l.seller !== 'ffKing'));
+  if (!load(KEYS.listings, null)) {
+    save(KEYS.listings, []);
+  }
+
+  feeConfig = load(KEYS.fee, { type: 'fixed', value: 20 });
+
+  const session = load(KEYS.session, null);
+  if (session && session.username) {
+    // Re-load users in case admin was just seeded
+    users = load(KEYS.users, users);
+    const u = users.find(x => x.username && x.username.toLowerCase() === String(session.username).toLowerCase());
+    if (u) {
+      currentUser = u;
+      try {
+        enterApp();
+        return;
+      } catch (err) {
+        console.error('enterApp failed', err);
+        currentUser = null;
+      }
+    }
+  }
+  document.getElementById('authScreen').classList.remove('hidden');
+}
+
+// ========== AUTH ==========
+function switchAuth(mode) {
+  document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('tabSignup').classList.toggle('active', mode === 'signup');
+  document.getElementById('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+  document.getElementById('signupForm').style.display = mode === 'signup' ? 'block' : 'none';
+  document.getElementById('authError').classList.remove('show');
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+function doLogin() {
+  document.getElementById('authError').classList.remove('show');
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if (!user || !pass) return showAuthError('Please enter username and password.');
+  const users = load(KEYS.users, []);
+  if (!Array.isArray(users) || users.length === 0) {
+    return showAuthError('No accounts found. Please Sign Up first.');
+  }
+  const byName = users.find(u => u.username && u.username.toLowerCase() === user.toLowerCase());
+  if (!byName) {
+    return showAuthError('Username not found. Check spelling or Sign Up first.');
+  }
+  if (String(byName.password) !== String(pass)) {
+    return showAuthError('Wrong password. Passwords are case-sensitive.');
+  }
+  currentUser = byName;
+  if (!save(KEYS.session, { username: byName.username })) {
+    return showAuthError('Could not save session. Try again.');
+  }
+  try {
+    enterApp();
+    showToast('Welcome back!', `Logged in as @${byName.username}`);
+  } catch (err) {
+    console.error(err);
+    showAuthError('Login UI error. Refresh the page and try again.');
+  }
+}
+
+function doSignup() {
+  document.getElementById('authError').classList.remove('show');
+  let user = document.getElementById('signupUser').value.trim();
+  const name = document.getElementById('signupName').value.trim() || user;
+  const loc = document.getElementById('signupLoc').value || 'Philippines';
+  const pass = document.getElementById('signupPass').value;
+  const pass2 = document.getElementById('signupPass2').value;
+  // Normalize username: no spaces
+  user = user.replace(/\s+/g, '');
+  if (!user || user.length < 3) return showAuthError('Username must be at least 3 characters (no spaces).');
+  if (!/^[a-zA-Z0-9_]+$/.test(user)) return showAuthError('Username: letters, numbers, underscore only.');
+  if (pass.length < 6) return showAuthError('Password must be at least 6 characters.');
+  if (pass !== pass2) return showAuthError('Passwords do not match.');
+  let users = load(KEYS.users, []);
+  if (!Array.isArray(users)) users = [];
+  if (users.find(u => u.username && u.username.toLowerCase() === user.toLowerCase())) {
+    return showAuthError('Username already taken. Try another or Login.');
+  }
+  const newUser = {
+    username: user,
+    password: pass,
+    displayName: name || user,
+    location: loc,
+    joined: getPHT(),
+    role: 'user',
+    mmAvailability: 'AVAILABLE'
+  };
+  users.push(newUser);
+  if (!save(KEYS.users, users)) {
+    return showAuthError('Could not save account (storage full?). Delete large listing photos and try again.');
+  }
+  // Verify it was saved
+  const verify = load(KEYS.users, []).find(u => u.username && u.username.toLowerCase() === user.toLowerCase());
+  if (!verify) {
+    return showAuthError('Account save failed. Try a different browser or clear site data.');
+  }
+  currentUser = verify;
+  save(KEYS.session, { username: verify.username });
+  // Clear signup fields
+  document.getElementById('signupUser').value = '';
+  document.getElementById('signupName').value = '';
+  document.getElementById('signupPass').value = '';
+  document.getElementById('signupPass2').value = '';
+  try {
+    enterApp();
+    showToast('Account created!', `Welcome @${verify.username}! You can now post listings.`);
+  } catch (err) {
+    console.error(err);
+    showAuthError('Account saved but UI failed. Please Login with your new account.');
+    switchAuth('login');
+    document.getElementById('loginUser').value = verify.username;
+  }
+}
+
+function isMiddleman() {
+  if (!currentUser) return false;
+  const r = (currentUser.role || 'user').toLowerCase();
+  return r === 'middleman' || r === 'admin';
+}
+
+function isAdmin() {
+  if (!currentUser) return false;
+  return (currentUser.role || '').toLowerCase() === 'admin';
+}
+
+function enterApp() {
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('topNav').style.display = 'flex';
+  document.getElementById('appLayout').style.display = 'flex';
+  document.getElementById('fabBtn').classList.add('show');
+  // Restore middleman availability from user profile
+  mmStatus = (currentUser.mmAvailability || 'AVAILABLE').toUpperCase();
+  const mmSelect = document.getElementById('mmStatus');
+  if (mmSelect) mmSelect.value = mmStatus;
+  updateNavUser();
+  updateSidebarRoles();
+  renderAll();
+  refreshMmNotifBadge();
+  refreshAdminAppBadge();
+  // Alert admin if there are pending MM applications
+  if (isAdmin()) {
+    const pendingCount = load(KEYS.mmApps, []).filter(a => a.status === 'pending').length;
+    if (pendingCount > 0) {
+      setTimeout(() => {
+        showToast('📝 Middleman applications', `${pendingCount} pending application(s). Open Admin Dashboard to Approve / Reject.`);
+      }, 500);
+    }
+  }
+}
+
+function refreshAdminAppBadge() {
+  const badge = document.getElementById('adminAppBadge');
+  if (!badge) return;
+  if (!isAdmin()) {
+    badge.style.display = 'none';
+    return;
+  }
+  const n = load(KEYS.mmApps, []).filter(a => a.status === 'pending').length;
+  if (n > 0) {
+    badge.textContent = n;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function logout() {
+  currentUser = null;
+  localStorage.removeItem(KEYS.session);
+  document.getElementById('topNav').style.display = 'none';
+  document.getElementById('appLayout').style.display = 'none';
+  document.getElementById('fabBtn').classList.remove('show');
+  document.getElementById('authScreen').classList.remove('hidden');
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  document.getElementById('notifDot').style.display = 'none';
+  closeUserMenu();
+  showToast('Logged out', 'See you next time!');
+}
+
+function changeProfilePicture(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showToast('Error', 'Please select an image file.');
+    input.value = '';
+    return;
+  }
+  if (file.size > 2.5 * 1024 * 1024) {
+    showToast('Error', 'Image too large. Please use a photo under ~2.5MB.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const users = load(KEYS.users, []);
+    const u = users.find(x => x.username === currentUser.username);
+    if (!u) return;
+    u.profilePic = e.target.result;
+    if (!save(KEYS.users, users)) return;
+    currentUser.profilePic = u.profilePic;
+    updateNavUser();
+    showToast('Profile picture updated', 'Your profile picture has been saved.');
+    input.value = '';
+  };
+  reader.onerror = function() {
+    showToast('Error', 'Failed to read image. Try another file.');
+    input.value = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function updateSidebarRoles() {
+  const mmSec = document.getElementById('mmSidebarSection');
+  const admSec = document.getElementById('adminSidebarSection');
+  if (mmSec) mmSec.style.display = isMiddleman() ? 'block' : 'none';
+  if (admSec) admSec.style.display = isAdmin() ? 'block' : 'none';
+}
+
+function updateNavUser() {
+  if (!currentUser) return;
+  const initials = (currentUser.displayName || currentUser.username).substring(0, 2).toUpperCase();
+  const navAvatar = document.getElementById('navAvatar');
+  const profAvatar = document.getElementById('profAvatar');
+  if (currentUser.profilePic) {
+    navAvatar.style.backgroundImage = `url("${currentUser.profilePic}")`;
+    navAvatar.style.backgroundSize = 'cover';
+    navAvatar.style.backgroundPosition = 'center';
+    navAvatar.style.color = 'transparent';
+    profAvatar.style.backgroundImage = `url("${currentUser.profilePic}")`;
+    profAvatar.style.backgroundSize = 'cover';
+    profAvatar.style.backgroundPosition = 'center';
+    profAvatar.style.color = 'transparent';
+    navAvatar.childNodes[0].textContent = '';
+    profAvatar.textContent = '';
+  } else {
+    navAvatar.style.backgroundImage = '';
+    navAvatar.style.color = '';
+    profAvatar.style.backgroundImage = '';
+    profAvatar.style.color = '';
+    navAvatar.childNodes[0].textContent = initials;
+    profAvatar.textContent = initials;
+  }
+  document.getElementById('profName').innerHTML = `${currentUser.displayName || currentUser.username} <span class="verified">✓ Verified</span>`;
+  document.getElementById('profLoc').textContent = `📍 ${currentUser.location || 'Philippines'} • Joined ${currentUser.joined || ''}`;
+  document.getElementById('profJoined').textContent = `Joined ${currentUser.joined || 'recently'}`;
+  const role = (currentUser.role || 'user').toLowerCase();
+  const roleTag = document.getElementById('profRoleTag');
+  if (roleTag) {
+    if (role === 'admin') roleTag.textContent = 'Admin';
+    else if (role === 'middleman') roleTag.textContent = '🛡 Middleman';
+    else roleTag.textContent = 'User';
+  }
+  const mmInfo = document.getElementById('mmRoleInfo');
+  if (mmInfo) {
+    if (role === 'middleman' || role === 'admin') {
+      mmInfo.innerHTML = `<div class="card" style="padding:14px 18px;border-color:var(--accent)"><strong style="color:var(--accent)">🛡 Official Middleman — Your Responsibility</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px">When you are AVAILABLE, new deals can be auto-assigned to you. You will facilitate (payment, delivery, verification) until COMPLETED. Set your status in the Middleman Panel.</p></div>`;
+    } else {
+      const apps = load(KEYS.mmApps, []);
+      const myApp = apps.find(a => a.username === currentUser.username && a.status === 'pending');
+      if (myApp) {
+        mmInfo.innerHTML = `<div class="card" style="padding:14px 18px;border-color:var(--warning)"><strong style="color:var(--warning)">⏳ Middleman application pending</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px">You applied on ${escapeHtml(myApp.date || '')}. Wait for Admin approval. You will be promoted when ready.</p></div>`;
+      } else {
+        mmInfo.innerHTML = `<div class="card" style="padding:14px 18px"><strong>You are not a Middleman</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px;margin-bottom:12px">Apply to become an official Middleman. The Admin will approve — they have the final say. Once approved, you will be responsible for the deals.</p><button class="btn btn-primary btn-sm" onclick="applyAsMiddleman()">📝 Apply as Middleman</button></div>`;
+      }
+    }
+  }
+}
+
+function toggleUserMenu() {
+  document.getElementById('userMenu').classList.toggle('show');
+}
+function closeUserMenu() {
+  document.getElementById('userMenu').classList.remove('show');
+}
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#navAvatar') && !e.target.closest('#userMenu')) closeUserMenu();
+});
+// Close sidebar when clicking a side item (mobile)
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.side-item')) closeSidebar();
+});
+
+// ========== NAVIGATION ==========
+function showPage(page) {
+  if (!currentUser) return;
+  if ((page === 'mm-requests' || page === 'mm-dashboard') && !isMiddleman()) {
+    showToast('Access denied', 'Middleman role required. Ask Admin to promote you.');
+    return;
+  }
+  if (page === 'admin' && !isAdmin()) {
+    showToast('Access denied', 'Admin only.');
+    return;
+  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('page-' + page);
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.side-item').forEach(s => s.classList.remove('active'));
+  const side = document.querySelector(`.side-item[data-page="${page}"]`);
+  if (side) side.classList.add('active');
+  if (page === 'my-listings') renderMyListings();
+  if (page === 'transactions') renderTransactions();
+  if (page === 'gc') renderGcList();
+  if (page === 'mm-requests') renderMmRequests();
+  if (page === 'mm-dashboard') renderMmActive();
+  if (page === 'admin') renderAdmin();
+  if (page === 'marketplace') renderListings();
+  if (page === 'profile') updateNavUser();
+}
+
+// ========== LISTINGS ==========
+function getListings() {
+  return load(KEYS.listings, []).filter(l => l.active !== false);
+}
+
+function renderListings() {
+  const grid = document.getElementById('listingsGrid');
+  let list = getListings();
+  const game = document.getElementById('filterGame')?.value || '';
+  const server = document.getElementById('filterServer')?.value || '';
+  const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  if (game) list = list.filter(l => l.game === game);
+  if (server) list = list.filter(l => l.server === server);
+  if (q) list = list.filter(l => l.title.toLowerCase().includes(q) || l.game.toLowerCase().includes(q));
+
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p style="font-size:1.1rem;margin-bottom:8px">No listings yet</p><p>Be the first to post! Press the <b style="color:var(--accent)">+</b> button below.</p></div>';
+    return;
+  }
+  grid.innerHTML = list.map(l => {
+    const imgHtml = l.image
+      ? `<img src="${l.image}" alt="${escapeHtml(l.title)}" loading="lazy">`
+      : (l.emoji || GAME_EMOJIS[l.game] || '🎮');
+    return `
+    <div class="card" onclick="openListing(${l.id})">
+      <div class="card-img">
+        <span class="card-badge">${escapeHtml(l.server)}</span>
+        ${imgHtml}
+      </div>
+      <div class="card-body">
+        <div class="card-title">${escapeHtml(l.title)}</div>
+        <div class="card-meta">${escapeHtml(l.game)} • @${escapeHtml(l.seller)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="price">₱${Number(l.price).toLocaleString()}</div>
+          <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openListing(${l.id})">View</button>
+        </div>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+function openListing(id) {
+  const list = getListings();
+  currentListing = list.find(l => l.id === id);
+  if (!currentListing) return;
+  document.getElementById('lmTitle').textContent = currentListing.title;
+  const imgBlock = currentListing.image
+    ? `<img class="detail-listing-img" src="${currentListing.image}" alt="${escapeHtml(currentListing.title)}">`
+    : `<div style="font-size:2.5rem;text-align:center;margin-bottom:12px">${currentListing.emoji || GAME_EMOJIS[currentListing.game] || '🎮'}</div>`;
+  document.getElementById('lmBody').innerHTML = `
+    ${imgBlock}
+    <div class="info-row"><div class="info-label">Game</div><div class="info-value">${escapeHtml(currentListing.game)}</div></div>
+    <div class="info-row"><div class="info-label">Server / Region</div><div class="info-value">${escapeHtml(currentListing.server)}</div></div>
+    <div class="info-row"><div class="info-label">Seller</div><div class="info-value">@${escapeHtml(currentListing.seller)}</div></div>
+    <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" style="color:var(--accent);font-size:1.3rem;font-weight:700">₱${Number(currentListing.price).toLocaleString()}</div></div>
+    ${currentListing.desc ? `<div class="info-row"><div class="info-label">Description</div><div class="info-value">${escapeHtml(currentListing.desc)}</div></div>` : ''}
+    <div class="divider"></div>
+    <p style="color:var(--text2);font-size:0.9rem">Use the trusted Philippines Middleman system for safe trading. A private GC will be created automatically.</p>
+  `;
+  const btn = document.getElementById('btnUseMiddleman');
+  if (currentListing.seller === currentUser.username) {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = 'inline-flex';
+  }
+  openModal('listingModal');
+}
+
+function previewListingImage(input) {
+  const file = input.files && input.files[0];
+  if (!file) {
+    clearListingImage();
+    return;
+  }
+  if (!file.type.startsWith('image/')) {
+    showToast('Error', 'Please select an image file (JPG, PNG, WebP, etc.).');
+    input.value = '';
+    return;
+  }
+  if (file.size > 2.5 * 1024 * 1024) {
+    showToast('Error', 'Image too large. Please use a photo under ~2.5MB.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    pendingListingImage = e.target.result;
+    const preview = document.getElementById('nlImagePreview');
+    const img = document.getElementById('nlImagePreviewImg');
+    img.src = pendingListingImage;
+    preview.classList.add('show');
+  };
+  reader.onerror = function() {
+    showToast('Error', 'Failed to read image. Try another file.');
+    clearListingImage();
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearListingImage() {
+  pendingListingImage = null;
+  const input = document.getElementById('nlImage');
+  if (input) input.value = '';
+  const preview = document.getElementById('nlImagePreview');
+  const img = document.getElementById('nlImagePreviewImg');
+  if (preview) preview.classList.remove('show');
+  if (img) img.src = '';
+}
+
+function createListing() {
+  if (!currentUser) return;
+  const title = document.getElementById('nlTitle').value.trim();
+  const price = parseInt(document.getElementById('nlPrice').value);
+  const game = document.getElementById('nlGame').value;
+  const server = document.getElementById('nlServer').value;
+  const desc = document.getElementById('nlDesc').value.trim();
+  if (!title) return showToast('Error', 'Please enter a title.');
+  if (!price || price < 1) return showToast('Error', 'Please enter a valid price in ₱.');
+
+  const listings = load(KEYS.listings, []);
+  const newId = Date.now();
+  const item = {
+    id: newId,
+    game,
+    server,
+    title,
+    price,
+    seller: currentUser.username,
+    emoji: GAME_EMOJIS[game] || '🎮',
+    desc,
+    image: pendingListingImage || null,
+    active: true,
+    created: getPHT()
+  };
+  listings.unshift(item);
+  save(KEYS.listings, listings);
+
+  document.getElementById('nlTitle').value = '';
+  document.getElementById('nlPrice').value = '';
+  document.getElementById('nlDesc').value = '';
+  clearListingImage();
+  closeModal('newListingModal');
+  renderListings();
+  renderMyListings();
+  showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now live on the Marketplace.`);
+  showPage('marketplace');
+}
+
+function renderMyListings() {
+  const body = document.getElementById('myListingsBody');
+  const mine = getListings().filter(l => l.seller === currentUser.username);
+  if (!mine.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:30px">No listings yet. Press the <b>+</b> button below to post.</td></tr>';
+    return;
+  }
+  body.innerHTML = mine.map(l => `
+    <tr>
+      <td>${escapeHtml(l.title)}</td>
+      <td>${escapeHtml(l.game)}</td>
+      <td>₱${Number(l.price).toLocaleString()}</td>
+      <td><span class="status st-joined">Active</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="openListing(${l.id})">View</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="deleteListing(${l.id})">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function deleteListing(id) {
+  if (!confirm('Delete this listing?')) return;
+  let listings = load(KEYS.listings, []);
+  listings = listings.filter(l => l.id !== id);
+  save(KEYS.listings, listings);
+  renderMyListings();
+  renderListings();
+  showToast('Deleted', 'Listing removed.');
+}
+
+// ========== MIDDLEMAN / TRANSACTIONS ==========
+function getTransactions() {
+  return load(KEYS.transactions, []);
+}
+function saveTransactions(arr) {
+  save(KEYS.transactions, arr);
+}
+
+function startMiddleman() {
+  if (!currentListing || !currentUser) return;
+  if (currentListing.seller === currentUser.username) {
+    showToast('Error', 'You cannot buy your own listing.');
+    return;
+  }
+  closeModal('listingModal');
+  const fee = feeConfig.type === 'fixed' ? feeConfig.value : Math.ceil(currentListing.price * feeConfig.value / 100);
+  const txId = 'GF-' + (48000 + Math.floor(Math.random() * 9000));
+  const tx = {
+    id: txId,
+    item: currentListing.title,
+    game: currentListing.game,
+    price: currentListing.price,
+    fee: fee,
+    total: currentListing.price + fee,
+    buyer: currentUser.username,
+    seller: currentListing.seller,
+    mm: null,
+    status: 'WAITING FOR MIDDLEMAN',
+    date: getPHT(),
+    messages: [
+      { type: 'system', text: `Transaction ${txId} created. Looking for an official Philippines Middleman...`, time: getPHT() }
+    ]
+  };
+
+  // Auto-assign to an AVAILABLE official middleman (responsibility goes to them)
+  const candidates = getAvailableMiddlemen([currentUser.username, currentListing.seller]);
+  if (candidates.length > 0) {
+    // Prefer least active (fewest non-completed MM deals), then first
+    const txsAll = getTransactions();
+    candidates.sort((a, b) => {
+      const loadA = txsAll.filter(t => t.mm === a.username && t.status !== 'COMPLETED' && t.status !== 'CANCELLED').length;
+      const loadB = txsAll.filter(t => t.mm === b.username && t.status !== 'COMPLETED' && t.status !== 'CANCELLED').length;
+      return loadA - loadB;
+    });
+    const chosen = candidates[0];
+    assignMiddlemanToTx(tx, chosen.username);
+  }
+
+  const txs = getTransactions();
+  txs.unshift(tx);
+  saveTransactions(txs);
+  currentTx = tx;
+  renderTransactions();
+  renderGcList();
+
+  if (tx.mm) {
+    showToast('Middleman assigned', `Transaction #${txId} • @${tx.mm} is now responsible for this deal.`);
+    // Notify if current user is that middleman (same browser / testing)
+    if (isMiddleman() && currentUser.username === tx.mm) {
+      showToast('🛡 New deal assigned to you', `#${txId} • ${currentListing.title} • ₱${tx.total.toLocaleString()} — you are responsible for facilitating.`);
+      document.getElementById('notifDot').style.display = 'block';
+    }
+  } else {
+    showToast('Waiting for Middleman', `Transaction #${txId} created. No AVAILABLE middleman right now — check Pending Requests.`);
+    if (isMiddleman()) {
+      showToast('🔔 NEW MIDDLEMAN REQUEST', `Transaction #${txId} • ${currentListing.title} • ₱${tx.total.toLocaleString()}`);
+      document.getElementById('notifDot').style.display = 'block';
+      renderMmRequests();
+    }
+  }
+  refreshMmNotifBadge();
+  showPage('transactions');
+}
+
+function claimTransaction(txId) {
+  if (!isMiddleman()) {
+    showToast('Access denied', 'Only official Middlemen can claim deals.');
+    return;
+  }
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === txId);
+  if (!tx || tx.mm) return;
+  const myAvail = (currentUser.mmAvailability || mmStatus || 'AVAILABLE').toUpperCase();
+  if (myAvail !== 'AVAILABLE') {
+    showToast('Cannot claim', 'Set your status to AVAILABLE first in the Middleman Panel');
+    return;
+  }
+  assignMiddlemanToTx(tx, currentUser.username);
+  saveTransactions(txs);
+  renderTransactions();
+  renderMmRequests();
+  renderMmActive();
+  refreshMmNotifBadge();
+  showToast('Transaction Claimed', `You are now the responsible Middleman for #${txId}.`);
+  showPage('gc');
+  openGc(txId);
+}
+
+// ========== GC ==========
+function canAccessGc(tx) {
+  if (!tx || !currentUser) return false;
+  if (tx.gcClosed) return false;
+  const u = currentUser.username;
+  // Privacy: only buyer, seller, and the assigned middleman for THIS deal
+  return tx.buyer === u || tx.seller === u || (tx.mm && tx.mm === u);
+}
+
+function isAssignedMm(tx) {
+  return !!(tx && currentUser && tx.mm && tx.mm === currentUser.username);
+}
+
+function renderGcList() {
+  const list = document.getElementById('gcList');
+  // Private GCs only: participants of that deal, and not closed by MM
+  const txs = getTransactions().filter(t => canAccessGc(t));
+  if (!txs.length) {
+    list.innerHTML = '<div class="empty" style="padding:30px"><div class="icon">💬</div>No active GCs<br><span style="font-size:0.8rem">Private per deal — Buyer, Seller & assigned MM only</span></div>';
+    return;
+  }
+  list.innerHTML = txs.map(t => `
+    <div class="gc-item" onclick="openGc('${t.id}')">
+      <div class="gc-title">GF Transaction #${t.id.split('-')[1]}</div>
+      <div class="gc-sub">${escapeHtml(t.item.substring(0, 28))}... • ${escapeHtml(t.status)}</div>
+    </div>
+  `).join('');
+}
+
+function openGc(txId) {
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === txId);
+  if (!tx) {
+    showToast('Not found', 'Transaction GC not found.');
+    return;
+  }
+  if (tx.gcClosed) {
+    showToast('GC closed', 'This GC was finished and removed by the Middleman.');
+    renderGcList();
+    return;
+  }
+  if (!canAccessGc(tx)) {
+    showToast('Private GC', 'Access denied. Only the Buyer, Seller, and assigned Middleman can enter.');
+    return;
+  }
+  currentTx = tx;
+  document.getElementById('gcTitle').textContent = `GF Transaction #${txId.split('-')[1]}`;
+  document.getElementById('gcMembers').textContent = `👤 ${currentTx.buyer}  •  👤 ${currentTx.seller}  •  🛡 ${currentTx.mm || 'Waiting...'}  ·  🔒 Private`;
+  document.getElementById('gcStatusBadge').className = 'status ' + (statusClass[currentTx.status] || '');
+  document.getElementById('gcStatusBadge').textContent = currentTx.status;
+
+  const ended = currentTx.status === 'COMPLETED' || currentTx.status === 'CANCELLED';
+  document.getElementById('gcInputArea').style.display = ended ? 'none' : 'flex';
+  document.getElementById('gcInfoPanel').style.display = 'block';
+
+  document.getElementById('infoId').textContent = currentTx.id;
+  document.getElementById('infoItem').textContent = currentTx.item;
+  document.getElementById('infoGame').textContent = currentTx.game;
+  document.getElementById('infoPrice').textContent = '₱' + Number(currentTx.price).toLocaleString();
+  document.getElementById('infoFee').textContent = '₱' + currentTx.fee;
+  document.getElementById('infoTotal').textContent = '₱' + Number(currentTx.total).toLocaleString();
+  document.getElementById('infoStatus').innerHTML = `<span class="status ${statusClass[currentTx.status]}">${currentTx.status}</span>`;
+  document.getElementById('infoBuyer').textContent = '@' + currentTx.buyer;
+  document.getElementById('infoSeller').textContent = '@' + currentTx.seller;
+  document.getElementById('infoMM').textContent = currentTx.mm ? '@' + currentTx.mm : '—';
+
+  // MM-only controls
+  const mmActions = document.getElementById('gcMmOnlyActions');
+  const btnClose = document.getElementById('btnCloseGc');
+  const gcActions = document.getElementById('gcActions');
+  if (isAssignedMm(currentTx)) {
+    mmActions.style.display = 'block';
+    if (btnClose) btnClose.style.display = ended ? 'block' : 'none';
+    if (gcActions) gcActions.style.display = ended ? 'none' : 'block';
+  } else {
+    mmActions.style.display = 'none';
+    if (gcActions) gcActions.style.display = ended ? 'none' : 'block';
+  }
+
+  const msgs = document.getElementById('gcMessages');
+  msgs.innerHTML = (currentTx.messages || []).map(m => {
+    if (m.type === 'system') return `<div class="msg system">${escapeHtml(m.text)}<div class="msg-meta">${m.time}</div></div>`;
+    const isMe = m.from === currentUser.username;
+    const cls = isMe ? 'me' : 'them';
+    return `<div class="msg ${cls}"><strong>${isMe ? 'You' : '@' + escapeHtml(m.from)}</strong><br>${escapeHtml(m.text)}<div class="msg-meta">${m.time}</div></div>`;
+  }).join('');
+  if (ended) {
+    msgs.innerHTML += `<div class="msg system">Transaction ${currentTx.status}. Chat locked. ${isAssignedMm(currentTx) ? 'You can Finish & Delete this GC.' : 'Waiting for Middleman to close this GC.'}</div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function sendGcMsg() {
+  const input = document.getElementById('gcInput');
+  const text = input.value.trim();
+  if (!text || !currentTx) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === currentTx.id);
+  if (!tx || !canAccessGc(tx)) {
+    showToast('Private GC', 'Access denied.');
+    return;
+  }
+  if (tx.status === 'COMPLETED' || tx.status === 'CANCELLED') {
+    showToast('Chat locked', 'Transaction already ended.');
+    return;
+  }
+  tx.messages = tx.messages || [];
+  tx.messages.push({ type: 'chat', from: currentUser.username, text, time: getPHT() });
+  saveTransactions(txs);
+  currentTx = tx;
+  input.value = '';
+  openGc(currentTx.id);
+}
+
+function cancelTransactionByMm() {
+  if (!currentTx || !isAssignedMm(currentTx)) {
+    showToast('Access denied', 'Assigned Middleman only.');
+    return;
+  }
+  if (currentTx.status === 'COMPLETED' || currentTx.status === 'CANCELLED') {
+    showToast('Already ended', currentTx.status);
+    return;
+  }
+  if (!confirm('Cancel this transaction? Chat will lock. You can then Finish & Delete the GC.')) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === currentTx.id);
+  if (!tx) return;
+  tx.status = 'CANCELLED';
+  tx.messages = tx.messages || [];
+  tx.messages.push({ type: 'system', text: `Transaction CANCELLED by Middleman @${currentUser.username}.`, time: getPHT() });
+  saveTransactions(txs);
+  currentTx = tx;
+  openGc(tx.id);
+  renderTransactions();
+  renderMmActive();
+  showToast('Cancelled', 'Transaction cancelled. You can Finish & Delete the GC.');
+}
+
+function closeGcByMiddleman() {
+  if (!currentTx || !isAssignedMm(currentTx)) {
+    showToast('Access denied', 'Only the assigned Middleman can delete the GC.');
+    return;
+  }
+  if (currentTx.status !== 'COMPLETED' && currentTx.status !== 'CANCELLED') {
+    showToast('Not yet', 'Complete or Cancel the transaction first before deleting the GC.');
+    return;
+  }
+  if (!confirm('Finish & permanently remove this GC from all participants\' lists?')) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === currentTx.id);
+  if (!tx) return;
+  tx.gcClosed = true;
+  tx.gcClosedAt = getPHT();
+  tx.gcClosedBy = currentUser.username;
+  tx.messages = tx.messages || [];
+  tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
+  saveTransactions(txs);
+  currentTx = null;
+  document.getElementById('gcTitle').textContent = 'Select a transaction GC';
+  document.getElementById('gcMembers').textContent = '';
+  document.getElementById('gcStatusBadge').textContent = '';
+  document.getElementById('gcInputArea').style.display = 'none';
+  document.getElementById('gcInfoPanel').style.display = 'none';
+  document.getElementById('gcMessages').innerHTML = '<div class="empty"><div class="icon">💬</div>GC closed by Middleman</div>';
+  renderGcList();
+  renderTransactions();
+  renderMmActive();
+  showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
+}
+
+// ========== PAYMENT ==========
+function openPaymentModal() {
+  if (!currentTx) return;
+  document.getElementById('payItemPrice').textContent = '₱' + Number(currentTx.price).toLocaleString();
+  document.getElementById('payFee').textContent = '₱' + currentTx.fee;
+  document.getElementById('payTotal').textContent = '₱' + Number(currentTx.total).toLocaleString();
+  openModal('paymentModal');
+}
+
+function selectPay(el) {
+  document.querySelectorAll('.pay-method').forEach(p => p.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPayMethod = el.dataset.method;
+}
+
+function confirmPayment() {
+  if (!currentTx) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === currentTx.id);
+  if (!tx) return;
+  tx.status = 'PAYMENT CONFIRMED';
+  tx.messages.push({
+    type: 'system',
+    text: `Payment of ₱${Number(tx.total).toLocaleString()} via ${selectedPayMethod} simulated and confirmed. (Prototype only — no real funds moved)`,
+    time: getPHT()
+  });
+  saveTransactions(txs);
+  currentTx = tx;
+  closeModal('paymentModal');
+  openGc(currentTx.id);
+  renderTransactions();
+  showToast('Payment Confirmed', `₱${Number(tx.total).toLocaleString()} marked as paid via ${selectedPayMethod}`);
+}
+
+function advanceStatus() {
+  if (!currentTx) return;
+  const txs = getTransactions();
+  const tx = txs.find(t => t.id === currentTx.id);
+  if (!tx) return;
+  const idx = statusFlow.indexOf(tx.status);
+  if (idx < 0 || idx >= statusFlow.length - 1) return;
+  tx.status = statusFlow[idx + 1];
+  tx.messages.push({ type: 'system', text: `Status updated to: ${tx.status}`, time: getPHT() });
+  saveTransactions(txs);
+  currentTx = tx;
+  openGc(currentTx.id);
+  renderTransactions();
+  renderMmActive();
+  showToast('Status Updated', tx.status);
+}
+
+// ========== RENDER HELPERS ==========
+function renderTransactions() {
+  const body = document.getElementById('txBody');
+  const txs = getTransactions().filter(t =>
+    t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username
+  );
+  if (!txs.length) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">No transactions yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = txs.map(t => {
+    let role = 'buyer';
+    if (t.seller === currentUser.username) role = 'seller';
+    if (t.mm === currentUser.username) role = 'mm';
+    const gcBtn = t.gcClosed
+      ? '<span style="color:var(--text2);font-size:0.8rem">GC closed</span>'
+      : `<button class="btn btn-outline btn-sm" onclick="showPage('gc');openGc('${t.id}')">Access GC</button>`;
+    return `
+    <tr>
+      <td>${t.id}</td>
+      <td>${escapeHtml(t.item.substring(0, 28))}...</td>
+      <td><span class="role-badge role-${role}">${role.toUpperCase()}</span></td>
+      <td>₱${Number(t.total).toLocaleString()}</td>
+      <td><span class="status ${statusClass[t.status] || ''}">${t.status}</span></td>
+      <td>${t.date}</td>
+      <td>${gcBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderMmRequests() {
+  const container = document.getElementById('mmRequestsList');
+  if (!isMiddleman()) {
+    container.innerHTML = '<div class="empty"><div class="icon">🛡</div>Middleman role required. Ask Admin to promote you.</div>';
+    return;
+  }
+  const pending = getTransactions().filter(t => t.status === 'WAITING FOR MIDDLEMAN' && !t.mm);
+  if (!pending.length) {
+    container.innerHTML = '<div class="empty"><div class="icon">🔔</div>No pending Middleman requests</div>';
+    return;
+  }
+  container.innerHTML = pending.map(t => `
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:1.05rem;margin-bottom:8px">🔔 NEW MIDDLEMAN REQUEST</div>
+      <div class="info-row"><div class="info-label">Transaction</div><div class="info-value">#${t.id}</div></div>
+      <div class="info-row"><div class="info-label">Game</div><div class="info-value">${escapeHtml(t.game)}</div></div>
+      <div class="info-row"><div class="info-label">Item</div><div class="info-value">${escapeHtml(t.item)}</div></div>
+      <div class="info-row"><div class="info-label">Amount</div><div class="info-value" style="color:var(--accent);font-weight:700">₱${Number(t.total).toLocaleString()}</div></div>
+      <div class="info-row"><div class="info-label">Buyer</div><div class="info-value">@${escapeHtml(t.buyer)}</div></div>
+      <div class="info-row"><div class="info-label">Seller</div><div class="info-value">@${escapeHtml(t.seller)}</div></div>
+      <div class="info-row"><div class="info-label">Status</div><div class="info-value"><span class="status st-waiting">Waiting for Middleman</span></div></div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-primary" onclick="claimTransaction('${t.id}')">CLAIM TRANSACTION</button>
+        <button class="btn btn-outline" onclick="showPage('transactions')">VIEW TRANSACTION</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderMmActive() {
+  const active = getTransactions().filter(t => t.mm === currentUser.username && t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
+  const completed = getTransactions().filter(t => t.mm === currentUser.username && t.status === 'COMPLETED');
+  const fees = completed.reduce((s, t) => s + (t.fee || 0), 0);
+  document.getElementById('mmActive').textContent = active.length;
+  document.getElementById('mmCompleted').textContent = completed.length;
+  document.getElementById('mmFees').textContent = '₱' + fees.toLocaleString();
+  document.getElementById('mmActiveBody').innerHTML = active.map(t => `
+    <tr>
+      <td>${t.id}</td>
+      <td>${escapeHtml(t.item.substring(0, 28))}...</td>
+      <td>₱${Number(t.total).toLocaleString()}</td>
+      <td><span class="status ${statusClass[t.status]}">${t.status}</span></td>
+      <td><button class="btn btn-outline btn-sm" onclick="showPage('gc');openGc('${t.id}')">Access GC</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text2)">No active deals</td></tr>';
+}
+
+function updateMmStatus() {
+  mmStatus = document.getElementById('mmStatus').value;
+  if (currentUser) {
+    const users = load(KEYS.users, []);
+    const u = users.find(x => x.username === currentUser.username);
+    if (u) {
+      u.mmAvailability = mmStatus;
+      currentUser.mmAvailability = mmStatus;
+      save(KEYS.users, users);
+    }
+  }
+  showToast('Status Updated', mmStatus === 'AVAILABLE'
+    ? 'AVAILABLE — Ready to accept new deals. You are responsible for facilitating them when assigned/claimed.'
+    : `You are now ${mmStatus}`);
+}
+
+function getAvailableMiddlemen(excludeUsernames) {
+  const exclude = new Set((excludeUsernames || []).map(x => (x || '').toLowerCase()));
+  const users = load(KEYS.users, []);
+  return users.filter(u => {
+    const role = (u.role || 'user').toLowerCase();
+    if (role !== 'middleman' && role !== 'admin') return false;
+    if (exclude.has((u.username || '').toLowerCase())) return false;
+    const avail = (u.mmAvailability || 'AVAILABLE').toUpperCase();
+    return avail === 'AVAILABLE';
+  });
+}
+
+function assignMiddlemanToTx(tx, mmUsername) {
+  tx.mm = mmUsername;
+  tx.status = 'MIDDLEMAN JOINED';
+  tx.messages = tx.messages || [];
+  tx.messages.push({
+    type: 'system',
+    text: `Middleman @${mmUsername} has been assigned and is now responsible for this deal.`,
+    time: getPHT()
+  });
+  tx.messages.push({
+    type: 'system',
+    text: `Private GC "GF Transaction #${tx.id.split('-')[1]}" is now active. Buyer, Seller & Middleman only.`,
+    time: getPHT()
+  });
+}
+
+function saveFeeConfig() {
+  feeConfig.type = document.getElementById('feeType').value;
+  feeConfig.value = parseFloat(document.getElementById('feeValue').value) || 20;
+  save(KEYS.fee, feeConfig);
+  showToast('Fee Saved', `Middleman fee set to ${feeConfig.type === 'fixed' ? '₱' + feeConfig.value : feeConfig.value + '%'}`);
+}
+
+function refreshMmNotifBadge() {
+  const badge = document.getElementById('mmNotifBadge');
+  const dot = document.getElementById('notifDot');
+  if (!badge) return;
+  if (!isMiddleman()) {
+    badge.style.display = 'none';
+    if (dot) dot.style.display = 'none';
+    return;
+  }
+  const pending = getTransactions().filter(t => t.status === 'WAITING FOR MIDDLEMAN' && !t.mm).length;
+  if (pending > 0) {
+    badge.textContent = pending;
+    badge.style.display = 'inline-block';
+    if (dot) dot.style.display = 'block';
+  } else {
+    badge.style.display = 'none';
+    if (dot) dot.style.display = 'none';
+  }
+}
+
+function applyAsMiddleman() {
+  if (!currentUser) return;
+  if (isMiddleman()) {
+    showToast('Already Middleman', 'You are already an official Middleman.');
+    return;
+  }
+  const apps = load(KEYS.mmApps, []);
+  if (apps.find(a => a.username === currentUser.username && a.status === 'pending')) {
+    showToast('Already pending', 'You already have an application. Wait for the Admin.');
+    return;
+  }
+  apps.unshift({
+    id: 'APP-' + Date.now(),
+    username: currentUser.username,
+    displayName: currentUser.displayName || currentUser.username,
+    location: currentUser.location || 'Philippines',
+    note: '',
+    status: 'pending',
+    date: getPHT()
+  });
+  save(KEYS.mmApps, apps);
+  updateNavUser();
+  refreshAdminAppBadge();
+  showToast('Application submitted', 'Submitted. Login as fynx → Admin Dashboard → Middleman Applications → Approve.');
+}
+
+function approveMmApp(appId) {
+  if (!isAdmin()) return;
+  const apps = load(KEYS.mmApps, []);
+  const app = apps.find(a => a.id === appId);
+  if (!app || app.status !== 'pending') return;
+  app.status = 'approved';
+  app.reviewedAt = getPHT();
+  app.reviewedBy = currentUser.username;
+  save(KEYS.mmApps, apps);
+  setUserRole(app.username, 'middleman');
+  showToast('Approved', `@${app.username} is now official Middleman. They are now responsible for the deals.`);
+  refreshAdminAppBadge();
+  renderAdmin();
+}
+
+function rejectMmApp(appId) {
+  if (!isAdmin()) return;
+  const apps = load(KEYS.mmApps, []);
+  const app = apps.find(a => a.id === appId);
+  if (!app || app.status !== 'pending') return;
+  app.status = 'rejected';
+  app.reviewedAt = getPHT();
+  app.reviewedBy = currentUser.username;
+  save(KEYS.mmApps, apps);
+  showToast('Rejected', `Application ni @${app.username} tinanggihan.`);
+  refreshAdminAppBadge();
+  renderAdmin();
+}
+
+function setUserRole(username, newRole) {
+  if (!isAdmin()) {
+    showToast('Access denied', 'Admin only.');
+    return;
+  }
+  const users = load(KEYS.users, []);
+  const u = users.find(x => x.username === username);
+  if (!u) return;
+  if (u.username === 'fynx' && newRole !== 'admin') {
+    showToast('Error', 'Cannot demote the main admin account.');
+    return;
+  }
+  u.role = newRole;
+  if (newRole === 'middleman' && !u.mmAvailability) {
+    u.mmAvailability = 'AVAILABLE';
+  }
+  save(KEYS.users, users);
+  if (currentUser && currentUser.username === username) {
+    currentUser.role = newRole;
+    if (newRole === 'middleman') currentUser.mmAvailability = u.mmAvailability || 'AVAILABLE';
+    updateNavUser();
+    updateSidebarRoles();
+    refreshMmNotifBadge();
+  }
+  renderAdmin();
+  if (newRole === 'middleman') {
+    showToast('Middleman activated', `@${username} is now official Middleman. They are now responsible for facilitating the deals.`);
+  } else {
+    showToast('Role updated', `@${username} is now ${newRole === 'admin' ? 'Admin' : 'User'}`);
+  }
+}
+
+function renderAdmin() {
+  if (!isAdmin()) return;
+  const users = load(KEYS.users, []);
+  const listings = getListings();
+  const txs = getTransactions();
+  document.getElementById('admUsers').textContent = users.length;
+  document.getElementById('admListings').textContent = listings.length;
+  document.getElementById('admTx').textContent = txs.length;
+
+  // Pending middleman applications — you will approve them
+  const appsList = document.getElementById('mmAppsList');
+  if (appsList) {
+    const pendingApps = load(KEYS.mmApps, []).filter(a => a.status === 'pending');
+    if (!pendingApps.length) {
+      appsList.innerHTML = '<div class="card" style="padding:18px;color:var(--text2)">No pending applications.</div>';
+    } else {
+      appsList.innerHTML = pendingApps.map(a => `
+        <div class="card" style="padding:18px;margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:8px">📝 Application from @${escapeHtml(a.username)}</div>
+          <div class="info-row"><div class="info-label">Display Name</div><div class="info-value">${escapeHtml(a.displayName || a.username)}</div></div>
+          <div class="info-row"><div class="info-label">Location</div><div class="info-value">${escapeHtml(a.location || '—')}</div></div>
+          <div class="info-row"><div class="info-label">Applied</div><div class="info-value">${escapeHtml(a.date || '—')}</div></div>
+          <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="approveMmApp('${a.id}')">✅ Approve → Make Middleman</button>
+            <button class="btn btn-outline btn-sm" style="border-color:var(--danger);color:#ff6b6b" onclick="rejectMmApp('${a.id}')">✕ Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  document.getElementById('adminUsersBody').innerHTML = users.map(u => {
+    const role = (u.role || 'user').toLowerCase();
+    let roleBadge = '<span class="role-badge role-buyer">USER</span>';
+    if (role === 'middleman') roleBadge = '<span class="role-badge role-mm">MIDDLEMAN</span>';
+    if (role === 'admin') roleBadge = '<span class="role-badge role-mm">ADMIN</span>';
+    let actions = '—';
+    if (u.username !== currentUser.username || role !== 'admin') {
+      if (role === 'user') {
+        actions = `<button class="btn btn-primary btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','middleman')">Make Middleman</button>`;
+      } else if (role === 'middleman') {
+        actions = `<button class="btn btn-outline btn-sm" onclick="setUserRole('${escapeHtml(u.username)}','user')">Remove MM</button>`;
+      }
+    }
+    return `
+    <tr>
+      <td>@${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.displayName || u.username)}</td>
+      <td>${escapeHtml(u.location || '—')}</td>
+      <td>${roleBadge}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+  refreshAdminAppBadge();
+}
+
+function renderAll() {
+  renderListings();
+  renderMyListings();
+  refreshMmNotifBadge();
+  renderTransactions();
+  renderGcList();
+  renderMmRequests();
+  renderMmActive();
+}
+
+// ========== UTILS ==========
+function getPHT() {
+  const now = new Date();
+  const options = { timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+  try {
+    return new Intl.DateTimeFormat('en-PH', options).format(now) + ' PHT';
+  } catch {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} PHT`;
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+  if (id === 'newListingModal') clearListingImage();
+}
+
+function showToast(title, body) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div><div class="toast-body">${escapeHtml(body)}</div>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4500);
+}
+
+// Start
+initApp();
+</script>
+</body>
+</html>
