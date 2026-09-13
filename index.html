@@ -335,6 +335,15 @@
     .online-user-bubble { width:36px; height:36px; font-size:.68rem; }
     .online-user-bubble::after { width:9px; height:9px; }
   }
+
+  /* Direct messages */
+  .dm-modal { width:min(520px,94vw); max-height:82vh; display:flex; flex-direction:column; }
+  .dm-messages { height:420px; max-height:55vh; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:var(--bg); }
+  .dm-input { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--bg2); }
+  .dm-input input { flex:1; min-width:0; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:11px 13px; color:var(--text); outline:none; }
+  .dm-input input:focus { border-color:var(--accent); }
+  .dm-empty { text-align:center; color:var(--text2); margin:auto; padding:30px 10px; }
+
   /* AUTH SCREENS */
   .auth-screen {
     position:fixed; inset:0; background:var(--bg); z-index:5000;
@@ -836,6 +845,24 @@
 <!-- ONLINE PEOPLE -->
 <div class="online-users-dock" id="onlineUsersDock" aria-label="People online"></div>
 
+<!-- DIRECT MESSAGE -->
+<div class="modal-overlay" id="dmModal" onclick="if(event.target===this)closeDirectMessage()">
+  <div class="modal dm-modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="dmTitle">Direct Message</h3>
+        <div id="dmSubtitle" style="font-size:.78rem;color:var(--text2);margin-top:3px"></div>
+      </div>
+      <button class="modal-close" onclick="closeDirectMessage()">×</button>
+    </div>
+    <div class="dm-messages" id="dmMessages"><div class="dm-empty">💬 Select an online user to start chatting.</div></div>
+    <div class="dm-input">
+      <input type="text" id="dmInput" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendDirectMessage()">
+      <button class="btn btn-primary" onclick="sendDirectMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- Floating + button — create post -->
 <button class="fab" id="fabBtn" onclick="openModal('newListingModal')" title="Create Listing">+</button>
 
@@ -997,6 +1024,7 @@ const KEYS = {
 let currentUser = null;
 let currentListing = null;
 let currentTx = null;
+let currentDmUser = null;
 let mmStatus = 'AVAILABLE';
 let feeConfig = { type: 'fixed', value: 20 };
 let selectedPayMethod = 'GCash';
@@ -1034,16 +1062,15 @@ async function loadPublicListings() {
       .order('created_at', { ascending: false });
     if (error) throw error;
 
+    // Supabase is the source of truth for the Marketplace.
+    // Do not merge old local listings back in, otherwise deleted posts can reappear.
     const remote = (data || []).map(publicRowToListing);
-    const local = load(KEYS.listings, []);
-    const byId = new Map();
-    local.forEach(item => byId.set(String(item.id), item));
-    remote.forEach(item => byId.set(String(item.id), item));
-    save(KEYS.listings, Array.from(byId.values()).sort((a,b) => {
+    remote.sort((a,b) => {
       const ad = Date.parse(a.created || '') || Number(a.id) || 0;
       const bd = Date.parse(b.created || '') || Number(b.id) || 0;
       return bd - ad;
-    }));
+    });
+    save(KEYS.listings, remote);
     renderListings();
     renderMyListings();
     return true;
@@ -1109,8 +1136,90 @@ function renderOnlineUsers() {
   dock.innerHTML = `<div class="online-users-label">${users.length} online</div>` + visible.map(u => {
     const name = String(u.display_name || u.username || 'User');
     const initials = name.trim().split(/\s+/).slice(0,2).map(x => x[0]).join('').toUpperCase() || 'U';
-    return `<div class="online-user-bubble" title="${escapeHtml(name)}" onclick="showToast('Online', '@${escapeHtml(u.username || name)} is online')">${escapeHtml(initials)}</div>`;
+    const username = String(u.username || name);
+    return `<div class="online-user-bubble" title="${escapeHtml(name)} • Click to chat" onclick="openDirectMessage(decodeURIComponent('${encodeURIComponent(username)}'))">${escapeHtml(initials)}</div>`;
   }).join('');
+}
+
+async function loadDirectMessages() {
+  if (!currentUser || !currentDmUser) return;
+  try {
+    const me = String(currentUser.username);
+    const other = String(currentDmUser.username);
+    const [sent, received] = await Promise.all([
+      supabaseClient.from('direct_messages').select('*')
+        .eq('sender_username', me).eq('receiver_username', other).order('created_at', { ascending: true }),
+      supabaseClient.from('direct_messages').select('*')
+        .eq('sender_username', other).eq('receiver_username', me).order('created_at', { ascending: true })
+    ]);
+    if (sent.error) throw sent.error;
+    if (received.error) throw received.error;
+    const rows = [...(sent.data || []), ...(received.data || [])]
+      .sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    renderDirectMessages(rows);
+  } catch (err) {
+    console.error('Direct messages load failed:', err);
+  }
+}
+
+function renderDirectMessages(rows) {
+  const box = document.getElementById('dmMessages');
+  if (!box) return;
+  if (!rows.length) {
+    box.innerHTML = '<div class="dm-empty">💬 No messages yet.<br>Start the conversation.</div>';
+    return;
+  }
+  box.innerHTML = rows.map(m => {
+    const mine = String(m.sender_username).toLowerCase() === String(currentUser.username).toLowerCase();
+    const cls = mine ? 'me' : 'them';
+    const who = mine ? 'You' : '@' + escapeHtml(m.sender_username);
+    const time = m.created_at ? new Date(m.created_at).toLocaleString('en-PH', { hour:'numeric', minute:'2-digit' }) : '';
+    return `<div class="msg ${cls}"><strong>${who}</strong><br>${escapeHtml(m.message || '')}<div class="msg-meta">${time}</div></div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function openDirectMessage(username) {
+  if (!currentUser) return;
+  const key = String(username || '').toLowerCase();
+  const row = publicPresence[key];
+  if (!row) {
+    showToast('User unavailable', 'This user is no longer online.');
+    return;
+  }
+  currentDmUser = {
+    username: String(row.username),
+    displayName: String(row.display_name || row.username)
+  };
+  document.getElementById('dmTitle').textContent = '@' + currentDmUser.username;
+  document.getElementById('dmSubtitle').textContent = currentDmUser.displayName + ' • Online';
+  document.getElementById('dmModal').classList.add('show');
+  loadDirectMessages();
+  setTimeout(() => document.getElementById('dmInput')?.focus(), 50);
+}
+
+function closeDirectMessage() {
+  document.getElementById('dmModal')?.classList.remove('show');
+  currentDmUser = null;
+}
+
+async function sendDirectMessage() {
+  const input = document.getElementById('dmInput');
+  const text = input?.value.trim();
+  if (!text || !currentUser || !currentDmUser) return;
+  try {
+    const { error } = await supabaseClient.from('direct_messages').insert({
+      sender_username: currentUser.username,
+      receiver_username: currentDmUser.username,
+      message: text
+    });
+    if (error) throw error;
+    input.value = '';
+    await loadDirectMessages();
+  } catch (err) {
+    console.error('Direct message send failed:', err);
+    showToast('Message failed', 'Could not send the message. Check your Supabase direct_messages table/policies.');
+  }
 }
 
 async function syncPublicPresence() {
@@ -1389,6 +1498,7 @@ function enterApp() {
         publishPresence(true);
         loadPublicListings();
         syncPublicPresence();
+        if (currentDmUser) loadDirectMessages();
         loadPublicTransactions(true);
         updateNavUser();
       }
@@ -1868,6 +1978,8 @@ async function deleteListing(id) {
   let listings = load(KEYS.listings, []);
   listings = listings.filter(l => String(l.id) !== String(id));
   save(KEYS.listings, listings);
+  // Reload from Supabase so the Marketplace immediately reflects the deletion.
+  await loadPublicListings();
   renderMyListings();
   renderListings();
   showToast('Deleted', 'Listing removed from the public Marketplace.');
