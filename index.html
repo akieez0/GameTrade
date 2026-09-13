@@ -295,6 +295,10 @@
   .role-buyer { background:#1a2a4a; color:#74c0fc; }
   .role-seller { background:#2a1a3a; color:#da77f2; }
   .role-mm { background:#0d3b2e; color:#00e5a0; }
+  /* Moderation */
+  .moderation-flag { background:#3a2a1a; color:#ffd43b; padding:3px 8px; border-radius:6px; font-size:.7rem; font-weight:700; }
+  .mod-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:12px; }
+  .mod-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
 
   /* Online people bubbles */
   .online-users-dock {
@@ -575,6 +579,13 @@
         <span id="mmNotifBadge" style="display:none;margin-left:auto;background:var(--danger);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center">0</span>
       </div>
     </div>
+    <div id="moderationSidebarSection" style="display:none">
+      <div class="side-section">Moderation</div>
+      <div class="side-item" data-page="moderation" onclick="showPage('moderation')">
+        <span class="icon">🚨</span> Moderation Queue
+        <span id="modNotifBadge" style="display:none;margin-left:auto;background:var(--danger);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center">0</span>
+      </div>
+    </div>
     <div class="side-section">Account</div>
     <div class="side-item" data-page="profile" onclick="showPage('profile')">
       <span class="icon">👤</span> My Profile
@@ -738,6 +749,13 @@
       <h1>Pending Middleman Requests</h1>
       <p class="subtitle">Bagong Middleman Request • Claim deals that need a trusted PH Middleman</p>
       <div id="mmRequestsList"></div>
+    </div>
+
+    <!-- MODERATION -->
+    <div class="page" id="page-moderation">
+      <h1>Moderation Queue</h1>
+      <p class="subtitle">Automatic spam flags + manual review • Middlemen can remove/warn • Admin can ban</p>
+      <div id="moderationList"></div>
     </div>
 
     <!-- PROFILE -->
@@ -1055,7 +1073,8 @@ const KEYS = {
   fee: 'gf_fee',
   mmApps: 'gf_mm_apps',
   uiPage: 'gf_ui_page',
-  uiTx: 'gf_ui_tx'
+  uiTx: 'gf_ui_tx',
+  moderation: 'gf_moderation'
 };
 
 // ========== STATE ==========
@@ -1440,6 +1459,17 @@ function doLogin() {
   if (String(byName.password) !== String(pass)) {
     return showAuthError('Wrong password. Passwords are case-sensitive.');
   }
+  if (byName.banned) {
+    const until = byName.bannedUntil ? Date.parse(byName.bannedUntil) : null;
+    if (!until || until > Date.now()) {
+      return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
+    }
+    byName.banned = false;
+    byName.bannedUntil = null;
+    const allUsers = load(KEYS.users, []);
+    const savedUser = allUsers.find(u => u.username === byName.username);
+    if (savedUser) { savedUser.banned = false; savedUser.bannedUntil = null; save(KEYS.users, allUsers); }
+  }
   currentUser = byName;
   if (!save(KEYS.session, { username: byName.username })) {
     return showAuthError('Could not save session. Try again.');
@@ -1478,7 +1508,11 @@ function doSignup() {
     location: loc,
     joined: getPHT(),
     role: 'user',
-    mmAvailability: 'AVAILABLE'
+    mmAvailability: 'AVAILABLE',
+    moderationStrikes: 0,
+    banned: false,
+    bannedUntil: null,
+    banReason: ''
   };
   users.push(newUser);
   if (!save(KEYS.users, users)) {
@@ -1562,6 +1596,7 @@ function enterApp() {
 
   refreshMmNotifBadge();
   refreshAdminAppBadge();
+  refreshModerationBadge();
   // Alert admin if there are pending MM applications
   if (isAdmin()) {
     const pendingCount = load(KEYS.mmApps, []).filter(a => a.status === 'pending').length;
@@ -1656,6 +1691,8 @@ function updateSidebarRoles() {
   const admSec = document.getElementById('adminSidebarSection');
   if (mmSec) mmSec.style.display = isMiddleman() ? 'block' : 'none';
   if (admSec) admSec.style.display = isAdmin() ? 'block' : 'none';
+  const modSec = document.getElementById('moderationSidebarSection');
+  if (modSec) modSec.style.display = isMiddleman() ? 'block' : 'none';
 }
 
 function updateNavUser() {
@@ -1747,6 +1784,10 @@ function showPage(page) {
     showToast('Access denied', 'Admin only.');
     return;
   }
+  if (page === 'moderation' && !isMiddleman()) {
+    showToast('Access denied', 'Middleman or Admin role required.');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('page-' + page);
   if (el) el.classList.add('active');
@@ -1761,6 +1802,7 @@ function showPage(page) {
   if (page === 'mm-requests') renderMmRequests();
   if (page === 'mm-dashboard') renderMmActive();
   if (page === 'admin') renderAdmin();
+  if (page === 'moderation') renderModeration();
   if (page === 'marketplace') renderListings();
   if (page === 'profile') updateNavUser();
 }
@@ -1941,6 +1983,7 @@ function clearListingImage() {
 
 async function createListing() {
   if (!currentUser) return;
+  if (currentUser.banned) return showToast('Posting blocked', 'Your account is currently banned.');
   const title = document.getElementById('nlTitle').value.trim();
   const price = parseInt(document.getElementById('nlPrice').value);
   const game = document.getElementById('nlGame').value;
@@ -1949,13 +1992,19 @@ async function createListing() {
   if (!title) return showToast('Error', 'Please enter a title.');
   if (!price || price < 1) return showToast('Error', 'Please enter a valid price in ₱.');
 
+  const spamCheck = checkListingSpam(title, desc);
+  if (spamCheck.block) {
+    showToast('Post blocked', spamCheck.reason);
+    return;
+  }
+
   const newId = Date.now();
   const item = {
     id: newId, game, server, title, price,
     seller: currentUser.username,
     emoji: GAME_EMOJIS[game] || '🎮',
     desc, image: pendingListingImage || null,
-    active: true, sold: false, created: new Date(newId).toISOString()
+    active: !spamCheck.flagged, sold: false, created: new Date(newId).toISOString()
   };
 
   const btn = document.querySelector('#newListingModal .modal-footer .btn-primary');
@@ -1965,14 +2014,20 @@ async function createListing() {
     const listings = load(KEYS.listings, []);
     listings.unshift(item);
     save(KEYS.listings, listings);
+    if (spamCheck.flagged) addModerationItem(item, spamCheck.reason, 'auto');
     await loadPublicListings();
-    showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now PUBLIC on the Marketplace.`);
+    if (spamCheck.flagged) {
+      showToast('Post held for review', 'Your listing was hidden because it looks like spam. A Middleman/Admin will review it.');
+    } else {
+      showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now PUBLIC on the Marketplace.`);
+    }
   } catch (err) {
     console.error('Public listing failed:', err);
+    if (spamCheck.flagged) addModerationItem(item, spamCheck.reason, 'auto');
     const listings = load(KEYS.listings, []);
     listings.unshift(item);
     save(KEYS.listings, listings);
-    showToast('Saved Locally', 'Supabase publish failed. Check your Supabase tables/settings.');
+    showToast(spamCheck.flagged ? 'Post held for review' : 'Saved Locally', spamCheck.flagged ? 'Listing hidden pending moderation.' : 'Supabase publish failed. Check your Supabase tables/settings.');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Publish Listing'; }
   }
@@ -1985,6 +2040,145 @@ async function createListing() {
   renderListings();
   renderMyListings();
   showPage('marketplace');
+}
+
+
+function getModerationItems() {
+  const items = load(KEYS.moderation, []);
+  return Array.isArray(items) ? items : [];
+}
+
+function saveModerationItems(items) { save(KEYS.moderation, items); refreshModerationBadge(); }
+
+function normalizeModText(text) {
+  return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function checkListingSpam(title, desc) {
+  const t = normalizeModText(title);
+  const d = normalizeModText(desc);
+  const combined = `${t} ${d}`;
+  const reasons = [];
+  if (/(https?:\/\/|www\.|discord\.gg\/|t\.me\/|wa\.me\/)/i.test(combined)) reasons.push('external links');
+  if (/(.)\1{7,}/.test(t.replace(/\s/g, ''))) reasons.push('repeated characters');
+  if ((t.match(/[!?.]{3,}/g) || []).length > 0) reasons.push('excessive punctuation');
+  const caps = t.replace(/[^a-z]/g, '').length;
+  const upper = String(title).replace(/[^A-Z]/g, '').length;
+  if (caps >= 8 && upper / caps >= 0.85) reasons.push('excessive ALL CAPS');
+  const spamWords = ['free robux', 'free diamonds', 'free cp', 'giveaway link', 'click here', 'dm for free', 'scam link'];
+  if (spamWords.some(w => combined.includes(w))) reasons.push('spam phrase');
+
+  const recent = getListings().filter(l => l.seller === currentUser.username && (Date.now() - (Date.parse(l.created) || Number(l.id) || 0)) < 10 * 60 * 1000);
+  if (recent.length >= 5) reasons.push('too many posts in 10 minutes');
+  const duplicate = recent.some(l => normalizeModText(l.title) === t && normalizeModText(l.desc) === d);
+  if (duplicate) return { block: true, flagged: false, reason: 'Duplicate post detected. Please wait or change the listing.' };
+
+  return { block: false, flagged: reasons.length > 0, reason: reasons.length ? 'Automatic spam check: ' + reasons.join(', ') : '' };
+}
+
+function addModerationItem(listing, reason, source = 'auto') {
+  const items = getModerationItems();
+  if (items.some(x => String(x.listingId) === String(listing.id) && x.status === 'pending')) return;
+  items.unshift({
+    id: 'MOD-' + Date.now(), listingId: String(listing.id), seller: listing.seller,
+    title: listing.title, reason: reason || 'Needs review', source, status: 'pending',
+    created: new Date().toISOString(), reviewedBy: null, reviewedAt: null
+  });
+  saveModerationItems(items);
+}
+
+function refreshModerationBadge() {
+  const badge = document.getElementById('modNotifBadge');
+  if (!badge) return;
+  if (!isMiddleman()) { badge.style.display = 'none'; return; }
+  const n = getModerationItems().filter(x => x.status === 'pending').length;
+  badge.textContent = n;
+  badge.style.display = n ? 'inline-block' : 'none';
+}
+
+async function setListingModeration(listingId, action) {
+  if (!isMiddleman()) return showToast('Access denied', 'Middleman or Admin role required.');
+  const listings = getListings();
+  const listing = listings.find(l => String(l.id) === String(listingId));
+  const items = getModerationItems();
+  const mod = items.find(x => String(x.listingId) === String(listingId) && x.status === 'pending');
+  if (!listing || !mod) return;
+
+  if (action === 'approve') {
+    listing.active = true;
+    mod.status = 'approved';
+  } else if (action === 'remove') {
+    listing.active = false;
+    mod.status = 'removed';
+  } else if (action === 'warn') {
+    mod.status = 'warned';
+    const users = load(KEYS.users, []);
+    const u = users.find(x => x.username === listing.seller);
+    if (u) { u.moderationStrikes = Number(u.moderationStrikes || 0) + 1; save(KEYS.users, users); }
+  }
+  mod.reviewedBy = currentUser.username;
+  mod.reviewedAt = new Date().toISOString();
+  saveModerationItems(items);
+  save(KEYS.listings, listings);
+
+  try {
+    await supabaseClient.from('public_listings').update({ active: listing.active !== false }).eq('id', String(listingId));
+    await loadPublicListings();
+  } catch (err) { console.error('Moderation sync failed:', err); }
+
+  if (action === 'approve') showToast('Approved', 'Listing is visible on the Marketplace.');
+  if (action === 'remove') showToast('Removed', 'Listing was removed from the Marketplace.');
+  if (action === 'warn') showToast('Warning issued', `@${listing.seller} received a moderation warning.`);
+  renderModeration();
+}
+
+function banUserFromModeration(username) {
+  if (!isAdmin()) return showToast('Access denied', 'Only Admin can ban users.');
+  const users = load(KEYS.users, []);
+  const u = users.find(x => x.username === username);
+  if (!u || u.username === 'fynx') return;
+  const reason = prompt(`Ban @${username}? Enter reason:`, 'Spam / trolling');
+  if (reason === null) return;
+  u.banned = true;
+  u.bannedUntil = null;
+  u.banReason = reason.trim() || 'Moderation violation';
+  save(KEYS.users, users);
+  getListings().filter(l => l.seller === username).forEach(l => { l.active = false; });
+  save(KEYS.listings, getListings());
+  showToast('User banned', `@${username} is now banned and their listings are hidden.`);
+  renderModeration();
+  renderListings();
+}
+
+function renderModeration() {
+  if (!isMiddleman()) return;
+  const box = document.getElementById('moderationList');
+  if (!box) return;
+  const pending = getModerationItems().filter(x => x.status === 'pending');
+  if (!pending.length) {
+    box.innerHTML = '<div class="empty"><div class="icon">✅</div>No posts waiting for moderation.</div>';
+    refreshModerationBadge();
+    return;
+  }
+  box.innerHTML = pending.map(m => {
+    const listing = getListings().find(l => String(l.id) === String(m.listingId));
+    if (!listing) return '';
+    const banBtn = isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="banUserFromModeration('${escapeHtml(listing.seller)}')">Ban User</button>` : '';
+    return `<div class="mod-card">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+        <strong>${escapeHtml(listing.title)}</strong><span class="moderation-flag">${escapeHtml(m.source === 'auto' ? 'AUTO FLAGGED' : 'REPORTED')}</span>
+      </div>
+      <div class="card-meta" style="margin-top:8px">@${escapeHtml(listing.seller)} • ${escapeHtml(listing.game)} • ₱${Number(listing.price).toLocaleString()}</div>
+      <div style="color:var(--text2);font-size:.85rem;margin-top:8px">Reason: ${escapeHtml(m.reason)}</div>
+      <div class="mod-actions">
+        <button class="btn btn-primary btn-sm" onclick="setListingModeration('${listing.id}','approve')">Approve</button>
+        <button class="btn btn-danger btn-sm" onclick="setListingModeration('${listing.id}','remove')">Remove Post</button>
+        <button class="btn btn-outline btn-sm" onclick="setListingModeration('${listing.id}','warn')">Warn User</button>
+        ${banBtn}
+      </div>
+    </div>`;
+  }).join('');
+  refreshModerationBadge();
 }
 
 function renderMyListings() {
@@ -2813,6 +3007,8 @@ function renderAll() {
   renderGcList();
   renderMmRequests();
   renderMmActive();
+  renderModeration();
+  refreshModerationBadge();
 }
 
 // ========== UTILS ==========
