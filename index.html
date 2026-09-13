@@ -2943,7 +2943,62 @@ function setUserRole(username, newRole) {
   }
 }
 
+
+/* ===== ADMIN BAN USER CONTROL ===== */
+function adminBanUser(username) {
+  if (!isAdmin()) return showToast('Access denied', 'Only admins can ban users.');
+  username = String(username || '').trim();
+  if (!username) return showToast('Error', 'Enter a username.');
+
+  const users = load(KEYS.users, []);
+  const user = users.find(u => String(u.username).toLowerCase() === username.toLowerCase());
+  if (!user) return showToast('Error', 'User not found.');
+  if (String(user.role || '').toLowerCase() === 'admin') {
+    return showToast('Cannot ban', 'Admin accounts cannot be banned.');
+  }
+
+  const reason = prompt(`Ban @${user.username}\n\nEnter reason:`);
+  if (reason === null) return;
+
+  user.banned = true;
+  user.bannedUntil = null;
+  user.banReason = reason.trim() || 'Violation of marketplace rules.';
+  user.bannedAt = new Date().toISOString();
+  save(KEYS.users, users);
+  renderAdmin();
+  showToast('User banned', `@${user.username} has been banned.`);
+}
+
+function adminUnbanUser(username) {
+  if (!isAdmin()) return showToast('Access denied', 'Only admins can unban users.');
+  username = String(username || '').trim();
+  const users = load(KEYS.users, []);
+  const user = users.find(u => String(u.username).toLowerCase() === username.toLowerCase());
+  if (!user) return showToast('Error', 'User not found.');
+
+  user.banned = false;
+  user.bannedUntil = null;
+  user.banReason = '';
+  user.bannedAt = null;
+  save(KEYS.users, users);
+  renderAdmin();
+  showToast('User unbanned', `@${user.username} can use the marketplace again.`);
+}
+
 function renderAdmin() {
+  const banControl = document.getElementById('admin-ban-user-control');
+  if (!banControl) {
+    const adminPage = document.getElementById('page-admin') || document.querySelector('[id*="admin"]');
+    if (adminPage) {
+      const box = document.createElement('div');
+      box.id = 'admin-ban-user-control';
+      box.style.cssText = 'margin:12px 0;padding:12px;border:1px solid #444;border-radius:8px;';
+      box.innerHTML = '<strong>Ban / Unban User</strong><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;"><input id="adminBanUsername" placeholder="username" style="padding:7px;border-radius:6px;border:1px solid #555;"><button onclick="adminBanUser(document.getElementById(\\'adminBanUsername\\').value)" style="padding:7px 10px;border-radius:6px;background:#8b1e1e;color:#fff;border:0;">Ban User</button><button onclick="adminUnbanUser(document.getElementById(\\'adminBanUsername\\').value)" style="padding:7px 10px;border-radius:6px;background:#1f7a3f;color:#fff;border:0;">Unban User</button></div>';
+      adminPage.prepend(box);
+    }
+  }
+
+
   if (!isAdmin()) return;
   const users = load(KEYS.users, []);
   const listings = getListings();
