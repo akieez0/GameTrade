@@ -3245,30 +3245,66 @@ function refreshMmNotifBadge() {
   }
 }
 
-function applyAsMiddleman() {
+async function applyAsMiddleman() {
   if (!currentUser) return;
   if (isMiddleman()) {
     showToast('Already Middleman', 'You are already an official Middleman.');
     return;
   }
-  const apps = load(KEYS.mmApps, []);
-  if (apps.find(a => a.username === currentUser.username && a.status === 'pending')) {
+
+  const { data: existing, error: checkError } = await supabaseClient
+    .from('mm_applications')
+    .select('*')
+    .eq('username', currentUser.username)
+    .eq('status', 'pending')
+    .maybeSingle();
+
+  if (checkError) {
+    console.error(checkError);
+    showToast('Error', 'Hindi ma-check ang application.');
+    return;
+  }
+
+  if (existing) {
     showToast('Already pending', 'You already have an application. Wait for the Admin.');
     return;
   }
-  apps.unshift({
+
+  const app = {
     id: 'APP-' + Date.now(),
     username: currentUser.username,
-    displayName: currentUser.displayName || currentUser.username,
+    display_name: currentUser.displayName || currentUser.username,
     location: currentUser.location || 'Philippines',
     note: '',
     status: 'pending',
     date: getPHT()
+  };
+
+  const { error } = await supabaseClient
+    .from('mm_applications')
+    .insert(app);
+
+  if (error) {
+    console.error(error);
+    showToast('Error', 'Hindi na-submit ang MM application.');
+    return;
+  }
+
+  const apps = load(KEYS.mmApps, []);
+  apps.unshift({
+    id: app.id,
+    username: app.username,
+    displayName: app.display_name,
+    location: app.location,
+    note: app.note,
+    status: app.status,
+    date: app.date
   });
   save(KEYS.mmApps, apps);
+
   updateNavUser();
   refreshAdminAppBadge();
-  showToast('Application submitted', 'Submitted. Login as fynx → Admin Dashboard → Middleman Applications → Approve.');
+  showToast('Application submitted', 'Submitted. Wait for the Admin to approve your Middleman application.');
 }
 
 function approveMmApp(appId) {
