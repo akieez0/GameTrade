@@ -295,6 +295,46 @@
   .role-buyer { background:#1a2a4a; color:#74c0fc; }
   .role-seller { background:#2a1a3a; color:#da77f2; }
   .role-mm { background:#0d3b2e; color:#00e5a0; }
+
+  /* Online people bubbles */
+  .online-users-dock {
+    position:fixed; right:14px; top:78px; z-index:1400;
+    display:flex; flex-direction:column; align-items:center; gap:9px;
+    pointer-events:none;
+  }
+  .online-users-label {
+    font-size:0.62rem; color:var(--text2); font-weight:700;
+    background:var(--bg2); border:1px solid var(--border);
+    border-radius:999px; padding:4px 7px; white-space:nowrap;
+  }
+  .online-user-bubble {
+    width:42px; height:42px; border-radius:50%;
+    background:linear-gradient(135deg,var(--accent3),var(--accent2));
+    border:2px solid var(--bg2); box-shadow:0 4px 14px rgba(0,0,0,.35);
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:.78rem; font-weight:800; position:relative;
+    pointer-events:auto; cursor:pointer; transition:transform .15s;
+  }
+  .online-user-bubble:hover { transform:scale(1.1); }
+  .online-user-bubble::after {
+    content:''; position:absolute; right:-1px; bottom:-1px;
+    width:11px; height:11px; border-radius:50%;
+    background:var(--success); border:2px solid var(--bg2);
+  }
+  .online-user-bubble[title]::before { content:attr(title); }
+  .online-user-bubble::before {
+    position:absolute; right:50px; top:50%; transform:translateY(-50%);
+    background:var(--bg3); color:var(--text); border:1px solid var(--border);
+    border-radius:7px; padding:5px 8px; font-size:.7rem; font-weight:600;
+    white-space:nowrap; opacity:0; visibility:hidden; transition:opacity .15s;
+  }
+  .online-user-bubble:hover::before { opacity:1; visibility:visible; }
+  @media (max-width:900px) {
+    .online-users-dock { right:8px; top:72px; gap:6px; }
+    .online-users-label { font-size:.55rem; padding:3px 5px; }
+    .online-user-bubble { width:36px; height:36px; font-size:.68rem; }
+    .online-user-bubble::after { width:9px; height:9px; }
+  }
   /* AUTH SCREENS */
   .auth-screen {
     position:fixed; inset:0; background:var(--bg); z-index:5000;
@@ -792,6 +832,10 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
+
+<!-- ONLINE PEOPLE -->
+<div class="online-users-dock" id="onlineUsersDock" aria-label="People online"></div>
+
 <!-- Floating + button — create post -->
 <button class="fab" id="fabBtn" onclick="openModal('newListingModal')" title="Create Listing">+</button>
 
@@ -1045,6 +1089,30 @@ async function deletePublicListing(listingId) {
   if (error) throw error;
 }
 
+
+function renderOnlineUsers() {
+  const dock = document.getElementById('onlineUsersDock');
+  if (!dock) return;
+  const now = Date.now();
+  const users = Object.values(publicPresence || {}).filter(row => {
+    const seen = row.last_seen ? Date.parse(row.last_seen) : 0;
+    return !!row.online && seen && (now - seen < 90000) &&
+      String(row.username || '').toLowerCase() !== String(currentUser?.username || '').toLowerCase();
+  });
+
+  if (!users.length) {
+    dock.innerHTML = '';
+    return;
+  }
+
+  const visible = users.slice(0, 7);
+  dock.innerHTML = `<div class="online-users-label">${users.length} online</div>` + visible.map(u => {
+    const name = String(u.display_name || u.username || 'User');
+    const initials = name.trim().split(/\s+/).slice(0,2).map(x => x[0]).join('').toUpperCase() || 'U';
+    return `<div class="online-user-bubble" title="${escapeHtml(name)}" onclick="showToast('Online', '@${escapeHtml(u.username || name)} is online')">${escapeHtml(initials)}</div>`;
+  }).join('');
+}
+
 async function syncPublicPresence() {
   try {
     const { data, error } = await supabaseClient
@@ -1054,6 +1122,7 @@ async function syncPublicPresence() {
     publicPresence = {};
     (data || []).forEach(row => { publicPresence[String(row.username).toLowerCase()] = row; });
     renderListings();
+    renderOnlineUsers();
   } catch (err) {
     console.error('Supabase presence load failed:', err);
   }
@@ -1392,6 +1461,8 @@ function logout() {
   document.getElementById('topNav').style.display = 'none';
   document.getElementById('appLayout').style.display = 'none';
   document.getElementById('fabBtn').classList.remove('show');
+  const onlineDock = document.getElementById('onlineUsersDock');
+  if (onlineDock) onlineDock.innerHTML = '';
   document.getElementById('authScreen').classList.remove('hidden');
   document.getElementById('loginUser').value = '';
   document.getElementById('loginPass').value = '';
