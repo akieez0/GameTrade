@@ -1081,7 +1081,8 @@ const KEYS = {
   mmApps: 'gf_mm_apps',
   uiPage: 'gf_ui_page',
   uiTx: 'gf_ui_tx',
-  moderation: 'gf_moderation'
+  moderation: 'gf_moderation',
+  hiddenTransactions: 'gf_hidden_transactions'
 };
 
 // ========== STATE ==========
@@ -2536,7 +2537,8 @@ function openGc(txId) {
     mmActions.style.display = 'none';
     if (gcActions) gcActions.style.display = ended ? 'none' : 'block';
   }
-  if (adminActions) adminActions.style.display = isAdmin() && ended ? 'block' : 'none';
+  if (adminActions) adminActions.style.display = ended && [currentTx.buyer, currentTx.seller, currentTx.mm].includes(currentUser.username) ? 'block' : 'none';
+  if (adminActions && ended) adminActions.innerHTML = `<button class="btn btn-danger btn-block btn-sm" onclick="removeTransactionForCurrentUser('${currentTx.id}')">✕ Remove Finished GC / Transaction</button>`;
 
   const msgs = document.getElementById('gcMessages');
   msgs.innerHTML = (currentTx.messages || []).map(m => {
@@ -2733,11 +2735,46 @@ function advanceStatus() {
   showToast('Status Updated', tx.status);
 }
 
+// Hide a finished transaction only for the current user, so each participant can clean their own list.
+function removeTransactionForCurrentUser(txId) {
+  if (!currentUser) return;
+  const tx = getTransactions().find(t => String(t.id) === String(txId));
+  if (!tx) return;
+  if (!['COMPLETED','CANCELLED'].includes(tx.status)) {
+    showToast('Not yet', 'Only completed or cancelled transactions can be removed.');
+    return;
+  }
+  if (![tx.buyer, tx.seller, tx.mm].includes(currentUser.username) && !isAdmin()) {
+    showToast('Access denied', 'You are not part of this transaction.');
+    return;
+  }
+  if (!confirm(`Remove transaction #${txId} from your list?`)) return;
+  const hidden = load(KEYS.hiddenTransactions, {});
+  hidden[currentUser.username] = hidden[currentUser.username] || [];
+  if (!hidden[currentUser.username].includes(String(txId))) hidden[currentUser.username].push(String(txId));
+  save(KEYS.hiddenTransactions, hidden);
+  if (currentTx && String(currentTx.id) === String(txId)) {
+    currentTx = null;
+    localStorage.removeItem(KEYS.uiTx);
+  }
+  renderTransactions();
+  renderGcList();
+  renderMmActive();
+  showToast('Removed', 'Transaction removed from your list.');
+}
+
+function isTransactionHiddenForCurrentUser(txId) {
+  if (!currentUser) return false;
+  const hidden = load(KEYS.hiddenTransactions, {});
+  return (hidden[currentUser.username] || []).includes(String(txId));
+}
+
 // ========== RENDER HELPERS ==========
 function renderTransactions() {
   const body = document.getElementById('txBody');
   const txs = getTransactions().filter(t =>
-    t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username
+    !isTransactionHiddenForCurrentUser(t.id) &&
+    (t.buyer === currentUser.username || t.seller === currentUser.username || t.mm === currentUser.username)
   );
   if (!txs.length) {
     body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">No transactions yet.</td></tr>';
@@ -2750,6 +2787,9 @@ function renderTransactions() {
     const gcBtn = t.gcClosed
       ? '<span style="color:var(--text2);font-size:0.8rem">GC closed</span>'
       : `<button class="btn btn-outline btn-sm" onclick="showPage('gc');openGc('${t.id}')">Access GC</button>`;
+    const removeBtn = ['COMPLETED','CANCELLED'].includes(t.status)
+      ? ` <button class="btn btn-danger btn-sm" onclick="removeTransactionForCurrentUser('${t.id}')">✕</button>`
+      : '';
     return `
     <tr>
       <td>${t.id}</td>
@@ -2758,7 +2798,7 @@ function renderTransactions() {
       <td>₱${Number(t.total).toLocaleString()}</td>
       <td><span class="status ${statusClass[t.status] || ''}">${t.status}</span></td>
       <td>${t.date}</td>
-      <td>${gcBtn}</td>
+      <td>${gcBtn}${removeBtn}</td>
     </tr>`;
   }).join('');
 }
