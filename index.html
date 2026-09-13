@@ -442,6 +442,17 @@
     .gc-sidebar, .gc-info-panel { width: 100%; }
     .fab { bottom: 20px; right: 20px; width: 56px; height: 56px; }
   }
+
+  /* Added user profile + global messaging */
+  .user-search-bar { display:flex; gap:8px; margin:0 0 18px; }
+  .user-search-results { display:grid; gap:8px; margin-top:8px; }
+  .user-result { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:10px; }
+  .user-result-name { font-weight:700; }
+  .user-result-meta { color:var(--text2); font-size:.76rem; }
+  .profile-posts-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+  .profile-post-card { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:12px; cursor:pointer; }
+  .profile-post-card:hover { border-color:var(--accent); }
+  @media(max-width:650px){ .profile-posts-grid{grid-template-columns:1fr;} .user-search-bar{flex-direction:column;} }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -603,6 +614,7 @@
           <option>Asia</option>
         </select>
         <input type="text" class="form-control" style="width:220px" id="searchInput" placeholder="Search items..." oninput="renderListings()">
+        <button class="btn btn-outline" onclick="openModal('userSearchModal');setTimeout(()=>document.getElementById('userSearchInput')?.focus(),50)">👤 Message User</button>
       </div>
       <div class="grid grid-4" id="listingsGrid"></div>
     </div>
@@ -865,6 +877,28 @@
 
 <!-- Floating + button — create post -->
 <button class="fab" id="fabBtn" onclick="openModal('newListingModal')" title="Create Listing">+</button>
+
+
+<!-- ADDED: user search/profile/message UI -->
+<div class="modal-overlay" id="userSearchModal" onclick="if(event.target===this)closeModal('userSearchModal')">
+  <div class="modal">
+    <div class="modal-header"><h3>Find User</h3><button class="modal-close" onclick="closeModal('userSearchModal')">×</button></div>
+    <div class="modal-body">
+      <div class="user-search-bar">
+        <input class="form-control" id="userSearchInput" placeholder="Search username..." oninput="searchUsers(this.value)">
+        <button class="btn btn-primary" onclick="searchUsers(document.getElementById('userSearchInput').value)">Search</button>
+      </div>
+      <div id="userSearchResults"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="userProfileModal" onclick="if(event.target===this)closeModal('userProfileModal')">
+  <div class="modal">
+    <div class="modal-header"><h3 id="userProfileTitle">User Profile</h3><button class="modal-close" onclick="closeModal('userProfileModal')">×</button></div>
+    <div class="modal-body" id="userProfileBody"></div>
+  </div>
+</div>
 
 <!-- MODALS -->
 <div class="modal-overlay" id="listingModal">
@@ -1841,6 +1875,10 @@ function openListing(id) {
     <div class="info-row"><div class="info-label">Game</div><div class="info-value">${escapeHtml(currentListing.game)}</div></div>
     <div class="info-row"><div class="info-label">Server / Region</div><div class="info-value">${escapeHtml(currentListing.server)}</div></div>
     <div class="info-row"><div class="info-label">Seller</div><div class="info-value">@${escapeHtml(currentListing.seller)} ${getPresenceHtml(currentListing.seller)}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+      <button class="btn btn-outline btn-sm" onclick="openUserProfile(currentListing.seller)">👤 View Profile</button>
+      ${currentListing.seller !== currentUser.username ? `<button class="btn btn-primary btn-sm" onclick="openDirectMessageByUsername(currentListing.seller)">💬 Message this user</button>` : ''}
+    </div>
     <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" style="color:var(--accent);font-size:1.3rem;font-weight:700">₱${Number(currentListing.price).toLocaleString()}</div></div>
     <div class="info-row"><div class="info-label">Availability</div><div class="info-value">${currentListing.sold || currentListing.active === false ? '<span class="status st-cancelled">SOLD / UNAVAILABLE</span>' : '<span class="status st-completed">AVAILABLE</span>'}</div></div>
     ${currentListing.desc ? `<div class="info-row"><div class="info-label">Description</div><div class="info-value">${escapeHtml(currentListing.desc)}</div></div>` : ''}
@@ -2807,6 +2845,6 @@ function showToast(title, body) {
 
 // Start
 initApp();
-</script>
+\n\n// ========== ADDED USER SEARCH / PROFILE / GLOBAL DM ==========\nasync function findPublicUser(username) {\n  const name = String(username || '').trim();\n  if (!name) return null;\n  try {\n    const { data, error } = await supabaseClient.from('public_presence').select('*').ilike('username', name).limit(1);\n    if (error) throw error;\n    if (data && data[0]) return data[0];\n  } catch (e) { console.error('User lookup failed:', e); }\n  const local = load(KEYS.users, []).find(u => String(u.username || '').toLowerCase() === name.toLowerCase());\n  return local ? { username: local.username, display_name: local.displayName || local.username, online:false } : null;\n}\n\nasync function searchUsers(query) {\n  const box = document.getElementById('userSearchResults');\n  if (!box) return;\n  const q = String(query || '').trim();\n  if (!q) { box.innerHTML = '<div class="empty" style="padding:25px">Type a username to find someone.</div>'; return; }\n  try {\n    const { data, error } = await supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(20);\n    if (error) throw error;\n    let users = data || [];\n    if (!users.length) {\n      const local = load(KEYS.users, []).filter(u => String(u.username || '').toLowerCase().includes(q.toLowerCase()));\n      users = local.map(u => ({ username:u.username, display_name:u.displayName || u.username, online:false }));\n    }\n    if (!users.length) { box.innerHTML = '<div class="empty" style="padding:25px">No user found.</div>'; return; }\n    box.innerHTML = users.map(u => `\n      <div class="user-result">\n        <div onclick="openUserProfile(decodeURIComponent('${encodeURIComponent(String(u.username))}'))" style="cursor:pointer">\n          <div class="user-result-name">@${escapeHtml(u.username)} ${u.online ? '<span style="color:var(--success)">●</span>' : ''}</div>\n          <div class="user-result-meta">${escapeHtml(u.display_name || u.username)}</div>\n        </div>\n        <button class="btn btn-primary btn-sm" onclick="openDirectMessageByUsername(decodeURIComponent('${encodeURIComponent(String(u.username))}'))">💬 Message</button>\n      </div>`).join('');\n  } catch (err) {\n    console.error('User search failed:', err);\n    box.innerHTML = '<div class="empty" style="padding:25px">Could not search users.</div>';\n  }\n}\n\nasync function openDirectMessageByUsername(username) {\n  if (!currentUser || String(username).toLowerCase() === String(currentUser.username).toLowerCase()) return;\n  const row = await findPublicUser(username);\n  if (!row) { showToast('User not found', `@${username} could not be found.`); return; }\n  currentDmUser = { username:String(row.username), displayName:String(row.display_name || row.username) };\n  document.getElementById('dmTitle').textContent = '@' + currentDmUser.username;\n  document.getElementById('dmSubtitle').textContent = currentDmUser.displayName + (row.online ? ' • Online' : ' • Offline');\n  document.getElementById('dmModal').classList.add('show');\n  loadDirectMessages();\n  setTimeout(() => document.getElementById('dmInput')?.focus(), 50);\n}\n\nasync function openUserProfile(username) {\n  const row = await findPublicUser(username);\n  if (!row) { showToast('User not found', `@${username} could not be found.`); return; }\n  const uname = String(row.username);\n  const display = String(row.display_name || uname);\n  let posts = [];\n  try {\n    const { data } = await supabaseClient.from('public_listings').select('*').eq('seller_username', uname).order('created_at', {ascending:false});\n    posts = (data || []).map(publicRowToListing);\n  } catch(e) { console.error('Profile listings load failed:', e); }\n  if (!posts.length) posts = getListings().filter(l => String(l.seller).toLowerCase() === uname.toLowerCase());\n  document.getElementById('userProfileTitle').textContent = '@' + uname;\n  document.getElementById('userProfileBody').innerHTML = `\n    <div class="profile-header" style="margin-bottom:16px">\n      <div class="profile-avatar">${escapeHtml(display.trim().split(/\\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase() || 'U')}</div>\n      <div><h2>${escapeHtml(display)} <span class="verified">✓ Verified</span></h2><div class="seller-presence"><span class="presence-dot ${row.online ? 'online' : ''}"></span>${row.online ? 'Online' : 'Offline'}</div><div style="color:var(--text2);margin-top:6px">@${escapeHtml(uname)}</div></div>\n    </div>\n    <button class="btn btn-primary" onclick="openDirectMessageByUsername(decodeURIComponent('${encodeURIComponent(uname)}'));closeModal('userProfileModal')">💬 Message this user</button>\n    <h3 style="margin-top:22px">Posts by @${escapeHtml(uname)}</h3>\n    <div class="profile-posts-grid">\n      ${posts.length ? posts.map(p => `<div class="profile-post-card" onclick="closeModal('userProfileModal');openListing(${p.id})"><strong>${escapeHtml(p.title)}</strong><div class="user-result-meta">${escapeHtml(p.game)} • ₱${Number(p.price).toLocaleString()}</div></div>`).join('') : '<div style="color:var(--text2);grid-column:1/-1">No marketplace posts yet.</div>'}\n    </div>`;\n  openModal('userProfileModal');\n}\n</script>
 </body>
 </html>
