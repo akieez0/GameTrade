@@ -265,6 +265,12 @@
   }
   .verified { color:var(--accent); font-size:0.9rem; }
   .rating { color:var(--gold); }
+  .seller-presence { display:flex; align-items:center; gap:6px; margin-top:7px; font-size:0.76rem; color:var(--text2); }
+  .presence-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto; background:#6b7280; box-shadow:0 0 0 2px rgba(107,114,128,.12); }
+  .presence-dot.online { background:var(--success); box-shadow:0 0 0 2px rgba(46,213,115,.15); }
+  .presence-dot.busy { background:var(--warning); box-shadow:0 0 0 2px rgba(255,165,2,.15); }
+  .availability-pill { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:999px; background:var(--bg4); font-size:0.68rem; font-weight:600; }
+  .listing-seller-line { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px; }
   .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
   .stat-card {
     background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px;
@@ -388,6 +394,7 @@
     .fab { bottom: 20px; right: 20px; width: 56px; height: 56px; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -679,7 +686,8 @@
         <div>
           <h2 id="profName">User <span class="verified">✓ Verified</span></h2>
           <div style="margin:6px 0;color:var(--text2)" id="profLoc">📍 Philippines</div>
-          <div class="rating">★ 5.0 Seller Rating &nbsp;|&nbsp; ★ 5.0 Middleman Rating</div>
+          <div class="rating" id="profRating">★ N/A Seller Rating &nbsp;|&nbsp; ★ N/A Middleman Rating</div>
+          <div id="profPresence" class="seller-presence"></div>
           <div style="margin-top:8px;font-size:0.9rem">
             <span class="tag" id="profJoined">Joined today</span>
             <span class="tag" id="profRoleTag">User</span>
@@ -947,6 +955,126 @@ let feeConfig = { type: 'fixed', value: 20 };
 let selectedPayMethod = 'GCash';
 let pendingListingImage = null; // data URL for new listing photo
 
+// ========== SUPABASE PUBLIC MARKETPLACE ==========
+const SUPABASE_URL = "https://rmzdjzxxtrqcuypdeqwq.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_0FqNKIPBKeLaLux8aItSYA_X28OEbeF";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let publicPresence = {};
+
+function publicRowToListing(row) {
+  return {
+    id: row.id,
+    game: row.game || '',
+    server: row.server || '',
+    title: row.title || '',
+    price: Number(row.price || 0),
+    seller: row.seller_username || '',
+    sellerDisplayName: row.seller_display_name || '',
+    emoji: row.emoji || '🎮',
+    desc: row.description || '',
+    image: row.image || null,
+    active: row.active !== false,
+    sold: row.sold === true,
+    created: row.created_at || ''
+  };
+}
+
+async function loadPublicListings() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('public_listings')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const remote = (data || []).map(publicRowToListing);
+    const local = load(KEYS.listings, []);
+    const byId = new Map();
+    local.forEach(item => byId.set(String(item.id), item));
+    remote.forEach(item => byId.set(String(item.id), item));
+    save(KEYS.listings, Array.from(byId.values()).sort((a,b) => {
+      const ad = Date.parse(a.created || '') || Number(a.id) || 0;
+      const bd = Date.parse(b.created || '') || Number(b.id) || 0;
+      return bd - ad;
+    }));
+    renderListings();
+    renderMyListings();
+    return true;
+  } catch (err) {
+    console.error('Supabase listings load failed:', err);
+    return false;
+  }
+}
+
+async function publishListingToSupabase(item) {
+  const { error } = await supabaseClient.from('public_listings').upsert({
+    id: String(item.id),
+    game: item.game,
+    server: item.server,
+    title: item.title,
+    price: Number(item.price),
+    seller_username: item.seller,
+    seller_display_name: currentUser?.displayName || item.seller,
+    emoji: item.emoji || '🎮',
+    description: item.desc || '',
+    image: item.image || null,
+    active: item.active !== false,
+    sold: item.sold === true,
+    created_at: new Date(Number(item.id) || Date.now()).toISOString(),
+    sold_at: null
+  }, { onConflict: 'id' });
+  if (error) throw error;
+}
+
+async function markPublicListingSold(listingId) {
+  const { error } = await supabaseClient
+    .from('public_listings')
+    .update({ active: false, sold: true, sold_at: new Date().toISOString() })
+    .eq('id', String(listingId));
+  if (error) throw error;
+}
+
+async function deletePublicListing(listingId) {
+  const { error } = await supabaseClient
+    .from('public_listings')
+    .delete()
+    .eq('id', String(listingId));
+  if (error) throw error;
+}
+
+async function syncPublicPresence() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('public_presence')
+      .select('*');
+    if (error) throw error;
+    publicPresence = {};
+    (data || []).forEach(row => { publicPresence[String(row.username).toLowerCase()] = row; });
+    renderListings();
+  } catch (err) {
+    console.error('Supabase presence load failed:', err);
+  }
+}
+
+async function publishPresence(online = true) {
+  if (!currentUser) return;
+  try {
+    const { error } = await supabaseClient.from('public_presence').upsert({
+      username: currentUser.username,
+      display_name: currentUser.displayName || currentUser.username,
+      role: currentUser.role || 'user',
+      online,
+      last_seen: new Date().toISOString(),
+      mm_availability: currentUser.mmAvailability || mmStatus || 'AVAILABLE'
+    }, { onConflict: 'username' });
+    if (error) throw error;
+    await syncPublicPresence();
+  } catch (err) {
+    console.error('Supabase presence update failed:', err);
+  }
+}
+
+
 const statusClass = {
   'WAITING FOR MIDDLEMAN': 'st-waiting',
   'MIDDLEMAN JOINED': 'st-joined',
@@ -1176,6 +1304,22 @@ function enterApp() {
   document.getElementById('topNav').style.display = 'flex';
   document.getElementById('appLayout').style.display = 'flex';
   document.getElementById('fabBtn').classList.add('show');
+  // Mark the account online and keep the last-seen timestamp fresh.
+  updatePresence();
+  publishPresence(true);
+  loadPublicListings();
+  syncPublicPresence();
+  if (!window.__presenceTimer) {
+    window.__presenceTimer = setInterval(() => {
+      if (currentUser) {
+        updatePresence();
+        publishPresence(true);
+        loadPublicListings();
+        syncPublicPresence();
+        updateNavUser();
+      }
+    }, 30000);
+  }
   // Restore middleman availability from user profile
   mmStatus = (currentUser.mmAvailability || 'AVAILABLE').toUpperCase();
   const mmSelect = document.getElementById('mmStatus');
@@ -1212,7 +1356,19 @@ function refreshAdminAppBadge() {
   }
 }
 
+function updatePresenceOffline() {
+  if (!currentUser) return;
+  const users = load(KEYS.users, []);
+  const u = users.find(x => x.username === currentUser.username);
+  if (u) {
+    u.lastSeen = 0;
+    save(KEYS.users, users);
+  }
+}
+
 function logout() {
+  publishPresence(false);
+  updatePresenceOffline();
   currentUser = null;
   localStorage.removeItem(KEYS.session);
   document.getElementById('topNav').style.display = 'none';
@@ -1291,6 +1447,12 @@ function updateNavUser() {
   }
   document.getElementById('profName').innerHTML = `${currentUser.displayName || currentUser.username} <span class="verified">✓ Verified</span>`;
   document.getElementById('profLoc').textContent = `📍 ${currentUser.location || 'Philippines'} • Joined ${currentUser.joined || ''}`;
+  const profRating = document.getElementById('profRating');
+  if (profRating) {
+    profRating.innerHTML = `★ ${getRatingText(currentUser, 'seller')} Seller Rating &nbsp;|&nbsp; ★ ${getRatingText(currentUser, 'mm')} Middleman Rating`;
+  }
+  const profPresence = document.getElementById('profPresence');
+  if (profPresence) profPresence.innerHTML = getPresenceHtml(currentUser.username);
   document.getElementById('profJoined').textContent = `Joined ${currentUser.joined || 'recently'}`;
   const role = (currentUser.role || 'user').toLowerCase();
   const roleTag = document.getElementById('profRoleTag');
@@ -1366,7 +1528,66 @@ function showPage(page) {
 
 // ========== LISTINGS ==========
 function getListings() {
-  return load(KEYS.listings, []).filter(l => l.active !== false);
+  // Keep sold listings visible so buyers can see whether an item is still available.
+  return load(KEYS.listings, []);
+}
+
+function getUser(username) {
+  if (!username) return null;
+  return load(KEYS.users, []).find(u => u.username && u.username.toLowerCase() === String(username).toLowerCase()) || null;
+}
+
+function isUserOnline(user) {
+  if (!user || !user.lastSeen) return false;
+  return (Date.now() - Number(user.lastSeen)) < 90000;
+}
+
+function getPresenceHtml(username, compact = false) {
+  const key = String(username || '').toLowerCase();
+  const remote = publicPresence[key];
+  if (remote) {
+    const seen = remote.last_seen ? Date.parse(remote.last_seen) : 0;
+    const online = !!remote.online && seen && (Date.now() - seen < 90000);
+    const role = String(remote.role || 'user').toLowerCase();
+    const avail = String(remote.mm_availability || 'AVAILABLE').toUpperCase();
+    if (role === 'middleman' || role === 'admin') {
+      let cls = online ? (avail === 'BUSY' ? 'busy' : 'online') : '';
+      const label = online ? avail : 'OFFLINE';
+      return `<span class="availability-pill"><span class="presence-dot ${cls}"></span>${label}</span>`;
+    }
+    return `<span class="availability-pill"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
+  }
+  const u = getUser(username);
+  if (!u) return `<span class="availability-pill"><span class="presence-dot"></span> Offline</span>`;
+  const online = isUserOnline(u);
+  const role = (u.role || 'user').toLowerCase();
+  const avail = (u.mmAvailability || 'AVAILABLE').toUpperCase();
+  if (role === 'middleman' || role === 'admin') {
+    let cls = online ? (avail === 'BUSY' ? 'busy' : 'online') : '';
+    const label = online ? avail : 'OFFLINE';
+    return `<span class="availability-pill"><span class="presence-dot ${cls}"></span>${label}</span>`;
+  }
+  return `<span class="availability-pill"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
+}
+
+function getRatingText(user, type) {
+  if (!user) return 'N/A';
+  const key = type === 'mm' ? 'mmReviews' : 'sellerReviews';
+  const reviews = Array.isArray(user[key]) ? user[key] : [];
+  if (!reviews.length) return 'N/A';
+  const total = reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0);
+  return (total / reviews.length).toFixed(1);
+}
+
+function updatePresence() {
+  if (!currentUser) return;
+  const users = load(KEYS.users, []);
+  const me = users.find(u => u.username === currentUser.username);
+  if (me) {
+    me.lastSeen = Date.now();
+    currentUser.lastSeen = me.lastSeen;
+    save(KEYS.users, users);
+  }
 }
 
 function renderListings() {
@@ -1408,7 +1629,7 @@ function renderListings() {
 
 function openListing(id) {
   const list = getListings();
-  currentListing = list.find(l => l.id === id);
+  currentListing = list.find(l => String(l.id) === String(id));
   if (!currentListing) return;
   document.getElementById('lmTitle').textContent = currentListing.title;
   const imgBlock = currentListing.image
@@ -1418,14 +1639,15 @@ function openListing(id) {
     ${imgBlock}
     <div class="info-row"><div class="info-label">Game</div><div class="info-value">${escapeHtml(currentListing.game)}</div></div>
     <div class="info-row"><div class="info-label">Server / Region</div><div class="info-value">${escapeHtml(currentListing.server)}</div></div>
-    <div class="info-row"><div class="info-label">Seller</div><div class="info-value">@${escapeHtml(currentListing.seller)}</div></div>
+    <div class="info-row"><div class="info-label">Seller</div><div class="info-value">@${escapeHtml(currentListing.seller)} ${getPresenceHtml(currentListing.seller)}</div></div>
     <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" style="color:var(--accent);font-size:1.3rem;font-weight:700">₱${Number(currentListing.price).toLocaleString()}</div></div>
+    <div class="info-row"><div class="info-label">Availability</div><div class="info-value">${currentListing.sold || currentListing.active === false ? '<span class="status st-cancelled">SOLD / UNAVAILABLE</span>' : '<span class="status st-completed">AVAILABLE</span>'}</div></div>
     ${currentListing.desc ? `<div class="info-row"><div class="info-label">Description</div><div class="info-value">${escapeHtml(currentListing.desc)}</div></div>` : ''}
     <div class="divider"></div>
     <p style="color:var(--text2);font-size:0.9rem">Use the trusted Philippines Middleman system for safe trading. A private GC will be created automatically.</p>
   `;
   const btn = document.getElementById('btnUseMiddleman');
-  if (currentListing.seller === currentUser.username) {
+  if (currentListing.seller === currentUser.username || currentListing.sold || currentListing.active === false) {
     btn.style.display = 'none';
   } else {
     btn.style.display = 'inline-flex';
@@ -1474,7 +1696,7 @@ function clearListingImage() {
   if (img) img.src = '';
 }
 
-function createListing() {
+async function createListing() {
   if (!currentUser) return;
   const title = document.getElementById('nlTitle').value.trim();
   const price = parseInt(document.getElementById('nlPrice').value);
@@ -1484,23 +1706,33 @@ function createListing() {
   if (!title) return showToast('Error', 'Please enter a title.');
   if (!price || price < 1) return showToast('Error', 'Please enter a valid price in ₱.');
 
-  const listings = load(KEYS.listings, []);
   const newId = Date.now();
   const item = {
-    id: newId,
-    game,
-    server,
-    title,
-    price,
+    id: newId, game, server, title, price,
     seller: currentUser.username,
     emoji: GAME_EMOJIS[game] || '🎮',
-    desc,
-    image: pendingListingImage || null,
-    active: true,
-    created: getPHT()
+    desc, image: pendingListingImage || null,
+    active: true, sold: false, created: new Date(newId).toISOString()
   };
-  listings.unshift(item);
-  save(KEYS.listings, listings);
+
+  const btn = document.querySelector('#newListingModal .modal-footer .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Publishing...'; }
+  try {
+    await publishListingToSupabase(item);
+    const listings = load(KEYS.listings, []);
+    listings.unshift(item);
+    save(KEYS.listings, listings);
+    await loadPublicListings();
+    showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now PUBLIC on the Marketplace.`);
+  } catch (err) {
+    console.error('Public listing failed:', err);
+    const listings = load(KEYS.listings, []);
+    listings.unshift(item);
+    save(KEYS.listings, listings);
+    showToast('Saved Locally', 'Supabase publish failed. Check your Supabase tables/settings.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Publish Listing'; }
+  }
 
   document.getElementById('nlTitle').value = '';
   document.getElementById('nlPrice').value = '';
@@ -1509,7 +1741,6 @@ function createListing() {
   closeModal('newListingModal');
   renderListings();
   renderMyListings();
-  showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now live on the Marketplace.`);
   showPage('marketplace');
 }
 
@@ -1525,7 +1756,7 @@ function renderMyListings() {
       <td>${escapeHtml(l.title)}</td>
       <td>${escapeHtml(l.game)}</td>
       <td>₱${Number(l.price).toLocaleString()}</td>
-      <td><span class="status st-joined">Active</span></td>
+      <td><span class="status ${l.sold || l.active === false ? 'st-cancelled' : 'st-joined'}">${l.sold || l.active === false ? 'SOLD' : 'Active'}</span></td>
       <td>
         <button class="btn btn-outline btn-sm" onclick="openListing(${l.id})">View</button>
         <button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="deleteListing(${l.id})">Delete</button>
@@ -1534,14 +1765,21 @@ function renderMyListings() {
   `).join('');
 }
 
-function deleteListing(id) {
+async function deleteListing(id) {
   if (!confirm('Delete this listing?')) return;
+  try {
+    await deletePublicListing(id);
+  } catch (err) {
+    console.error('Public delete failed:', err);
+    showToast('Error', 'Could not delete the public listing.');
+    return;
+  }
   let listings = load(KEYS.listings, []);
-  listings = listings.filter(l => l.id !== id);
+  listings = listings.filter(l => String(l.id) !== String(id));
   save(KEYS.listings, listings);
   renderMyListings();
   renderListings();
-  showToast('Deleted', 'Listing removed.');
+  showToast('Deleted', 'Listing removed from the public Marketplace.');
 }
 
 // ========== MIDDLEMAN / TRANSACTIONS ==========
@@ -1563,6 +1801,7 @@ function startMiddleman() {
   const txId = 'GF-' + (48000 + Math.floor(Math.random() * 9000));
   const tx = {
     id: txId,
+    listingId: currentListing.id,
     item: currentListing.title,
     game: currentListing.game,
     price: currentListing.price,
@@ -1857,6 +2096,9 @@ function advanceStatus() {
   tx.messages.push({ type: 'system', text: `Status updated to: ${tx.status}`, time: getPHT() });
   saveTransactions(txs);
   currentTx = tx;
+  if (tx.status === 'COMPLETED' && tx.listingId) {
+    markPublicListingSold(tx.listingId).then(() => loadPublicListings()).catch(err => console.error('Failed to mark listing sold:', err));
+  }
   openGc(currentTx.id);
   renderTransactions();
   renderMmActive();
@@ -1951,6 +2193,7 @@ function updateMmStatus() {
       save(KEYS.users, users);
     }
   }
+  publishPresence(true);
   showToast('Status Updated', mmStatus === 'AVAILABLE'
     ? 'AVAILABLE — Ready to accept new deals. You are responsible for facilitating them when assigned/claimed.'
     : `You are now ${mmStatus}`);
