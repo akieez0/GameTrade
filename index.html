@@ -343,6 +343,9 @@
 
   /* Direct messages */
   .dm-modal { width:min(520px,94vw); max-height:82vh; display:flex; flex-direction:column; }
+  #dmModal { z-index:6000; }
+  #dmModal.show .dm-modal { animation: dmPopupIn .38s cubic-bezier(.16,1,.3,1); }
+  @keyframes dmPopupIn { 0%{opacity:0;transform:translateY(40px) scale(.88)} 65%{opacity:1;transform:translateY(-6px) scale(1.02)} 100%{opacity:1;transform:none} }
   .dm-messages { height:420px; max-height:55vh; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:var(--bg); }
   .dm-input { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--bg2); }
   .dm-input input { flex:1; min-width:0; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:11px 13px; color:var(--text); outline:none; }
@@ -1555,6 +1558,116 @@ function startPublicPresenceRealtimeListener() {
 
 startPublicPresenceRealtimeListener();
 
+// ========== PUBLIC TRANSACTIONS REALTIME ==========
+function startPublicTransactionsRealtimeListener() {
+  try {
+    if (!supabaseClient || window.__publicTransactionsRealtimeStarted) return;
+    window.__publicTransactionsRealtimeStarted = true;
+
+    supabaseClient
+      .channel('public-transactions-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'public_transactions'
+        },
+        async (payload) => {
+          try {
+            if (!currentUser) return;
+
+            const row = payload.new || payload.old || {};
+            const tx = publicRowToTransaction(row);
+            const username = String(currentUser.username || '').toLowerCase();
+            const isParticipant =
+              String(tx.buyer || '').toLowerCase() === username ||
+              String(tx.seller || '').toLowerCase() === username ||
+              String(tx.mm || '').toLowerCase() === username;
+
+            if (!isParticipant) return;
+
+            // Immediately merge the realtime transaction into this device.
+            const txs = getTransactions();
+            const index = txs.findIndex(t => String(t.id) === String(tx.id));
+            if (payload.eventType === 'DELETE') {
+              if (index !== -1) txs.splice(index, 1);
+              save(KEYS.transactions, txs);
+              if (currentTx && String(currentTx.id) === String(tx.id)) {
+                currentTx = null;
+                localStorage.removeItem(KEYS.uiTx);
+              }
+              renderTransactions();
+              renderGcList();
+              renderMmActive();
+              return;
+            }
+
+            const previous = index !== -1 ? txs[index] : null;
+            if (index !== -1) txs[index] = tx;
+            else txs.unshift(tx);
+            save(KEYS.transactions, txs);
+
+            // Refresh an open GC immediately when the same transaction changes.
+            if (currentTx && String(currentTx.id) === String(tx.id)) {
+              currentTx = tx;
+              const gcPage = document.getElementById('page-gc');
+              if (gcPage && gcPage.classList.contains('active')) openGc(tx.id);
+            }
+
+            renderTransactions();
+            renderGcList();
+            renderMmRequests();
+            renderMmActive();
+            refreshMmNotifBadge();
+
+            // Notify only the other participants, not the user who caused the change.
+            const lastMsg = Array.isArray(tx.messages) ? tx.messages.slice(-1)[0] : null;
+            const actor = String(
+              (lastMsg && (lastMsg.from || lastMsg.by)) ||
+              tx.gcClosedBy ||
+              tx.mm ||
+              ''
+            ).toLowerCase();
+
+            if (payload.eventType === 'INSERT' && username !== String(tx.buyer || '').toLowerCase()) {
+              showToast('🔔 New Transaction', `#${tx.id} • ${tx.item}`);
+              const dot = document.getElementById('notifDot');
+              if (dot) dot.style.display = 'block';
+            } else if (
+              payload.eventType === 'UPDATE' &&
+              tx.mm &&
+              previous && !previous.mm &&
+              actor !== username
+            ) {
+              showToast('💬 GC Created', `Transaction #${tx.id} is now active. Open Transactions → Access GC.`);
+              const dot = document.getElementById('notifDot');
+              if (dot) dot.style.display = 'block';
+            } else if (
+              payload.eventType === 'UPDATE' &&
+              lastMsg &&
+              lastMsg.type === 'chat' &&
+              String(lastMsg.from || '').toLowerCase() !== username
+            ) {
+              showToast('💬 New GC Message', `@${lastMsg.from}: ${String(lastMsg.text || '').substring(0, 55)}`);
+              const dot = document.getElementById('notifDot');
+              if (dot) dot.style.display = 'block';
+            }
+          } catch (err) {
+            console.error('Public Transactions Realtime update failed:', err);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Public Transactions Realtime:', status);
+      });
+  } catch (err) {
+    console.error('Public Transactions Realtime setup failed:', err);
+  }
+}
+
+startPublicTransactionsRealtimeListener();
+
 // Keep the online users dock accurate even when no realtime event arrives.
 if (!window.__onlineUsersCleanupTimer) {
   window.__onlineUsersCleanupTimer = setInterval(() => {
@@ -1928,21 +2041,25 @@ async function doLogin() {
   const pass = document.getElementById('loginPass').value;
   if (!user || !pass) return showAuthError('Please enter username and password.');
 
-  // Testing mode: use local accounts only. No Supabase Auth/email is used.
+  // Testing login: local account only. Supabase Auth/email is intentionally disabled for now.
   try {
     const localUsers = load(KEYS.users, []);
-    const found = localUsers.find(u => String(u.username || '').toLowerCase() === user.toLowerCase());
-    if (!found) return showAuthError('Username not found. Please Sign Up first.');
-    if (String(found.password || '') !== String(pass)) return showAuthError('Wrong username or password.');
-    if (found.banned) return showAuthError(`Account banned${found.banReason ? ': ' + found.banReason : ''}.`);
+    const byName = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
+    if (!byName) return showAuthError('Username not found. Please Sign Up first.');
+    if (String(byName.password || '') !== pass) return showAuthError('Wrong username or password.');
 
-    currentUser = { ...found };
-    save(KEYS.session, { username: currentUser.username });
+    if (byName.banned) return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
+    currentUser = byName;
+    save(KEYS.session, { username: byName.username });
+    const idx = localUsers.findIndex(u => String(u.username).toLowerCase() === String(byName.username).toLowerCase());
+    if (idx >= 0) localUsers[idx] = { ...localUsers[idx], ...byName };
+    else localUsers.push(byName);
+    save(KEYS.users, localUsers);
     enterApp();
-    showToast('Welcome back!', `Logged in as @${currentUser.username}`);
+    showToast('Welcome back!', `Logged in as @${byName.username}`);
   } catch (err) {
     console.error('Login failed:', err);
-    showAuthError('Unable to log in.');
+    showAuthError('Unable to log in. Check your Supabase connection/settings.');
   }
 }
 
@@ -1961,32 +2078,38 @@ async function doSignup() {
 
   try {
     const localUsers = load(KEYS.users, []);
-    if (localUsers.some(u => String(u.username || '').toLowerCase() === user.toLowerCase())) {
+    const existing = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
+    if (existing) {
       return showAuthError('Username already taken. Try another or Login.');
     }
-
+    const localId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
     const newUser = {
+      id: localId,
       username: user,
-      password: pass,
-      displayName: name,
+      display_name: name,
       location: loc,
       joined: getPHT(),
       role: 'user',
+      mm_availability: 'AVAILABLE',
+      moderation_strikes: 0,
+      banned: false,
+      banned_until: null,
+      ban_reason: '',
+      password: pass,
+      displayName: name,
       mmAvailability: 'AVAILABLE',
       moderationStrikes: 0,
-      banned: false,
-      bannedUntil: null,
-      banReason: ''
+      banned: false
     };
+    currentUser = newUser;
     localUsers.push(newUser);
     save(KEYS.users, localUsers);
-    currentUser = newUser;
     save(KEYS.session, { username: user });
     enterApp();
     showToast('Account created!', `Welcome @${user}`);
   } catch (err) {
     console.error('Signup failed:', err);
-    showAuthError('Could not create account.');
+    showAuthError(err?.message || 'Could not create account.');
   }
 }
 
@@ -2950,7 +3073,7 @@ function startMiddleman() {
   showPage('transactions');
 }
 
-function claimTransaction(txId) {
+async function claimTransaction(txId) {
   if (!isMiddleman()) {
     showToast('Access denied', 'Only official Middlemen can claim deals.');
     return;
@@ -2963,8 +3086,17 @@ function claimTransaction(txId) {
     showToast('Cannot claim', 'Set your status to AVAILABLE first in the Middleman Panel');
     return;
   }
+
+  // Assign the MM locally, then wait for the SAME transaction to sync publicly
+  // so the buyer and seller can see the GC on their own devices.
   assignMiddlemanToTx(tx, currentUser.username);
-  saveTransactions(txs);
+  save(KEYS.transactions, txs);
+  const synced = await syncPublicTransactions([tx]);
+  if (!synced) {
+    showToast('GC sync failed', 'The Middleman was assigned locally, but the transaction could not sync to the other user.');
+    return;
+  }
+
   renderTransactions();
   renderMmRequests();
   renderMmActive();
@@ -3116,7 +3248,6 @@ function cancelTransaction() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `Transaction CANCELLED by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
-  syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -3156,7 +3287,7 @@ function cancelTransactionByMm() {
   showToast('Cancelled', 'Transaction cancelled. You can Finish & Delete the GC.');
 }
 
-function closeGcByMiddleman() {
+async function closeGcByMiddleman() {
   if (!currentTx || !isAssignedMm(currentTx)) {
     showToast('Access denied', 'Only the assigned Middleman can delete the GC.');
     return;
@@ -3175,6 +3306,7 @@ function closeGcByMiddleman() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
+  await syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -3190,7 +3322,7 @@ function closeGcByMiddleman() {
   showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
 }
 
-function removeFinishedGcForParticipant() {
+async function removeFinishedGcForParticipant() {
   if (!currentTx || !currentUser) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
@@ -3214,7 +3346,7 @@ function removeFinishedGcForParticipant() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC removed by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
-  syncPublicTransactions([tx]);
+  await syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   renderGcList();
@@ -3353,7 +3485,7 @@ function toggleAllFinishedTransactions(checked) {
   });
 }
 
-function removeSelectedTransactions() {
+async function removeSelectedTransactions() {
   if (!currentUser) return;
   const selected = [...selectedFinishedTransactions];
   if (!selected.length) return showToast('Nothing selected', 'Select one or more finished transactions first.');
@@ -3367,10 +3499,18 @@ function removeSelectedTransactions() {
   const hidden = load(KEYS.hiddenTransactions, {});
   hidden[currentUser.username] = hidden[currentUser.username] || [];
   valid.forEach(id => {
+    const tx = txs.find(t => String(t.id) === String(id));
+    if (tx) {
+      tx.gcClosed = true;
+      tx.gcClosedAt = getPHT();
+      tx.gcClosedBy = currentUser.username;
+    }
     if (!hidden[currentUser.username].includes(String(id))) hidden[currentUser.username].push(String(id));
     selectedFinishedTransactions.delete(String(id));
   });
   save(KEYS.hiddenTransactions, hidden);
+  await syncPublicTransactions(valid.map(id => txs.find(t => String(t.id) === String(id))).filter(Boolean));
+  save(KEYS.transactions, txs);
   if (currentTx && valid.includes(String(currentTx.id))) {
     currentTx = null;
     localStorage.removeItem(KEYS.uiTx);
@@ -3994,6 +4134,7 @@ async function openDirectMessageByUsername(username) {
   currentDmUser = { username:String(row.username), displayName:String(row.display_name || row.username) };
   document.getElementById('dmTitle').textContent = '@' + currentDmUser.username;
   document.getElementById('dmSubtitle').textContent = currentDmUser.displayName + (row.online ? ' • Online' : ' • Offline');
+  document.querySelectorAll('.modal-overlay.show').forEach(el => { if (el.id !== 'dmModal') el.classList.remove('show'); });
   document.getElementById('dmModal').classList.add('show');
   loadDirectMessages();
   setTimeout(() => document.getElementById('dmInput')?.focus(), 50);
