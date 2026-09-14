@@ -5927,10 +5927,9 @@ async function searchUsers(query) {
   }
 
   try {
-    const orFilter = `username.ilike.%${q}%,display_name.ilike.%${q}%`;
     const [{ data: profiles, error: profileError }, { data: presence, error: presenceError }] = await Promise.all([
-      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').or(orFilter).limit(20),
-      supabaseClient.from('public_presence').select('*').or(orFilter).limit(20)
+      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').ilike('username', `%${q}%`).limit(20),
+      supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(20)
     ]);
     if (profileError && presenceError) throw profileError || presenceError;
 
@@ -5955,10 +5954,7 @@ async function searchUsers(query) {
     });
 
     if (!users.length) {
-      const local = load(KEYS.users, []).filter(u =>
-        String(u.username || '').toLowerCase().includes(q.toLowerCase()) ||
-        String(u.displayName || '').toLowerCase().includes(q.toLowerCase())
-      );
+      const local = load(KEYS.users, []).filter(u => String(u.username || '').toLowerCase().includes(q.toLowerCase()));
       users = local.map(u => ({ username: u.username, display_name: u.displayName || u.username, online: false, banned: !!u.banned, ban_reason: u.banReason || '', role: u.role || 'user' }));
     }
 
