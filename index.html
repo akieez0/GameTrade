@@ -1525,7 +1525,7 @@ function startPublicPresenceRealtimeListener() {
 
             const key = username.toLowerCase();
 
-            if (payload.eventType === 'DELETE') {
+                 if (payload.eventType === 'DELETE' || (payload.eventType === 'UPDATE' && newRow.online === false)) {
               delete publicPresence[key];
             } else {
               publicPresence[key] = newRow;
