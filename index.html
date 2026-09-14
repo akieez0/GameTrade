@@ -1928,25 +1928,21 @@ async function doLogin() {
   const pass = document.getElementById('loginPass').value;
   if (!user || !pass) return showAuthError('Please enter username and password.');
 
-  // Testing login: local account only. Supabase Auth/email is intentionally disabled for now.
+  // Testing mode: use local accounts only. No Supabase Auth/email is used.
   try {
     const localUsers = load(KEYS.users, []);
-    const byName = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
-    if (!byName) return showAuthError('Username not found. Please Sign Up first.');
-    if (String(byName.password || '') !== pass) return showAuthError('Wrong username or password.');
+    const found = localUsers.find(u => String(u.username || '').toLowerCase() === user.toLowerCase());
+    if (!found) return showAuthError('Username not found. Please Sign Up first.');
+    if (String(found.password || '') !== String(pass)) return showAuthError('Wrong username or password.');
+    if (found.banned) return showAuthError(`Account banned${found.banReason ? ': ' + found.banReason : ''}.`);
 
-    if (byName.banned) return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
-    currentUser = byName;
-    save(KEYS.session, { username: byName.username });
-    const idx = localUsers.findIndex(u => String(u.username).toLowerCase() === String(byName.username).toLowerCase());
-    if (idx >= 0) localUsers[idx] = { ...localUsers[idx], ...byName };
-    else localUsers.push(byName);
-    save(KEYS.users, localUsers);
+    currentUser = { ...found };
+    save(KEYS.session, { username: currentUser.username });
     enterApp();
-    showToast('Welcome back!', `Logged in as @${byName.username}`);
+    showToast('Welcome back!', `Logged in as @${currentUser.username}`);
   } catch (err) {
     console.error('Login failed:', err);
-    showAuthError('Unable to log in. Check your Supabase connection/settings.');
+    showAuthError('Unable to log in.');
   }
 }
 
@@ -1965,38 +1961,32 @@ async function doSignup() {
 
   try {
     const localUsers = load(KEYS.users, []);
-    const existing = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
-    if (existing) {
+    if (localUsers.some(u => String(u.username || '').toLowerCase() === user.toLowerCase())) {
       return showAuthError('Username already taken. Try another or Login.');
     }
-    const localId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+
     const newUser = {
-      id: localId,
       username: user,
-      display_name: name,
+      password: pass,
+      displayName: name,
       location: loc,
       joined: getPHT(),
       role: 'user',
-      mm_availability: 'AVAILABLE',
-      moderation_strikes: 0,
-      banned: false,
-      banned_until: null,
-      ban_reason: '',
-      password: pass,
-      displayName: name,
       mmAvailability: 'AVAILABLE',
       moderationStrikes: 0,
-      banned: false
+      banned: false,
+      bannedUntil: null,
+      banReason: ''
     };
-    currentUser = newUser;
     localUsers.push(newUser);
     save(KEYS.users, localUsers);
+    currentUser = newUser;
     save(KEYS.session, { username: user });
     enterApp();
     showToast('Account created!', `Welcome @${user}`);
   } catch (err) {
     console.error('Signup failed:', err);
-    showAuthError(err?.message || 'Could not create account.');
+    showAuthError('Could not create account.');
   }
 }
 
@@ -3126,6 +3116,7 @@ function cancelTransaction() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `Transaction CANCELLED by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
+  syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -3165,7 +3156,7 @@ function cancelTransactionByMm() {
   showToast('Cancelled', 'Transaction cancelled. You can Finish & Delete the GC.');
 }
 
-async function closeGcByMiddleman() {
+function closeGcByMiddleman() {
   if (!currentTx || !isAssignedMm(currentTx)) {
     showToast('Access denied', 'Only the assigned Middleman can delete the GC.');
     return;
@@ -3184,7 +3175,6 @@ async function closeGcByMiddleman() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
-  await syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -3200,7 +3190,7 @@ async function closeGcByMiddleman() {
   showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
 }
 
-async function removeFinishedGcForParticipant() {
+function removeFinishedGcForParticipant() {
   if (!currentTx || !currentUser) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
@@ -3224,7 +3214,7 @@ async function removeFinishedGcForParticipant() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC removed by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
-  await syncPublicTransactions([tx]);
+  syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   renderGcList();
@@ -3363,7 +3353,7 @@ function toggleAllFinishedTransactions(checked) {
   });
 }
 
-async function removeSelectedTransactions() {
+function removeSelectedTransactions() {
   if (!currentUser) return;
   const selected = [...selectedFinishedTransactions];
   if (!selected.length) return showToast('Nothing selected', 'Select one or more finished transactions first.');
@@ -3377,18 +3367,10 @@ async function removeSelectedTransactions() {
   const hidden = load(KEYS.hiddenTransactions, {});
   hidden[currentUser.username] = hidden[currentUser.username] || [];
   valid.forEach(id => {
-    const tx = txs.find(t => String(t.id) === String(id));
-    if (tx) {
-      tx.gcClosed = true;
-      tx.gcClosedAt = getPHT();
-      tx.gcClosedBy = currentUser.username;
-    }
     if (!hidden[currentUser.username].includes(String(id))) hidden[currentUser.username].push(String(id));
     selectedFinishedTransactions.delete(String(id));
   });
   save(KEYS.hiddenTransactions, hidden);
-  await syncPublicTransactions(valid.map(id => txs.find(t => String(t.id) === String(id))).filter(Boolean));
-  save(KEYS.transactions, txs);
   if (currentTx && valid.includes(String(currentTx.id))) {
     currentTx = null;
     localStorage.removeItem(KEYS.uiTx);
