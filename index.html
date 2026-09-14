@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GameTrade PH — Buy & Sell Gaming Marketplace</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2355bfe9'/%3E%3Cstop offset='1' stop-color='%238d9ff5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='white'/%3E%3Cpath d='M16 39c-3.7 0-6.5-2.8-6.5-6.2 0-3.1 2.3-5.7 5.4-6.2 1-5.7 6-9.9 12-9.9 5.2 0 9.7 3.2 11.5 7.8.8-.3 1.7-.4 2.6-.4 4.5 0 8.1 3.3 8.1 7.4S45.5 39 41 39H16Z' fill='url(%23g)'/%3E%3Ctext x='32' y='52' text-anchor='middle' font-family='Arial,sans-serif' font-size='13' font-weight='700' fill='%233b9fc9'%3EGT%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -754,6 +755,48 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 .staff-delete-btn:hover { opacity:1; transform:scale(1.10); filter:brightness(1.04); animation:staffDeletePulse 1.1s ease-in-out infinite; }
 .staff-delete-btn:active { transform:scale(.94); animation:none; }
 .staff-delete-btn:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+
+/* ===== SOFT BLENDED HEADERS ONLY ===== */
+:root{
+  --header-soft-bg: rgba(255,255,255,.42);
+  --header-soft-bg-2: rgba(255,255,255,.38);
+}
+header,
+.topbar,
+.navbar,
+.site-header,
+.section-header,
+.card-header,
+.modal-header,
+.table-header,
+thead th,
+[class*="header"]{
+  background-color: var(--header-soft-bg) !important;
+  background-image: none !important;
+}
+.section-header,
+.card-header,
+.modal-header,
+.table-header,
+thead th{
+  box-shadow: none !important;
+}
+
+/* ===== SEARCH/PROFILE BAN BADGE ONLY ===== */
+.user-ban-badge{
+  display:inline-flex;
+  align-items:center;
+  margin-left:7px;
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.5px;
+  background:rgba(220,38,38,.14);
+  color:#b91c1c;
+  border:1px solid rgba(220,38,38,.24);
+  vertical-align:middle;
+}
 </style>
 
 </head>
@@ -1455,6 +1498,69 @@ function startBanRealtimeListener() {
 
 startBanRealtimeListener();
 
+// ========== PUBLIC PRESENCE REALTIME ONLY ==========
+function startPublicPresenceRealtimeListener() {
+  try {
+    if (!supabaseClient || window.__publicPresenceRealtimeStarted) return;
+    window.__publicPresenceRealtimeStarted = true;
+
+    supabaseClient
+      .channel('public-presence-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'public_presence'
+        },
+        (payload) => {
+          try {
+            const oldRow = payload.old || {};
+            const newRow = payload.new || {};
+            const username = String(
+              newRow.username || oldRow.username || ''
+            ).trim();
+
+            if (!username) return;
+
+            const key = username.toLowerCase();
+
+            if (payload.eventType === 'DELETE') {
+              delete publicPresence[key];
+            } else {
+              publicPresence[key] = newRow;
+            }
+
+            renderOnlineUsers();
+            renderListings();
+          } catch (err) {
+            console.error('Public presence realtime update failed:', err);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Public Presence Realtime:', status);
+        if (status === 'SUBSCRIBED') {
+          syncPublicPresence();
+        }
+      });
+  } catch (err) {
+    console.error('Public Presence Realtime setup failed:', err);
+  }
+}
+
+startPublicPresenceRealtimeListener();
+
+// Immediately publish offline when the page is being left/closed.
+// The normal 5-second heartbeat remains unchanged.
+window.addEventListener('pagehide', () => {
+  if (currentUser) publishPresence(false);
+});
+window.addEventListener('beforeunload', () => {
+  if (currentUser) publishPresence(false);
+});
+
+
 function publicRowToListing(row) {
   return {
     id: row.id,
@@ -1542,7 +1648,7 @@ function renderOnlineUsers() {
   const now = Date.now();
   const users = Object.values(publicPresence || {}).filter(row => {
     const seen = row.last_seen ? Date.parse(row.last_seen) : 0;
-    return !!row.online && seen && (now - seen < 90000) &&
+    return !!row.online && seen && (now - seen < 10000) &&
       String(row.username || '').toLowerCase() !== String(currentUser?.username || '').toLowerCase();
   });
 
@@ -2088,7 +2194,7 @@ function updateNavUser() {
   const initials = (currentUser.displayName || currentUser.username).substring(0, 2).toUpperCase();
   const navAvatar = document.getElementById('navAvatar');
   const profAvatar = document.getElementById('profAvatar');
-  if (currentUser.profilePic) {
+  if (currentUser.profilePic && !currentUser.banned) {
     navAvatar.style.backgroundImage = `url("${currentUser.profilePic}")`;
     navAvatar.style.backgroundSize = 'cover';
     navAvatar.style.backgroundPosition = 'center';
@@ -2521,6 +2627,33 @@ async function setListingModeration(listingId, action) {
   renderModeration();
 }
 
+function clearBannedUserPfp(username) {
+  const users = load(KEYS.users, []);
+  let changed = false;
+
+  users.forEach(u => {
+    if (
+      u &&
+      String(u.username || '').toLowerCase() === String(username || '').toLowerCase()
+    ) {
+      if (u.profilePic) {
+        u.profilePic = '';
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) save(KEYS.users, users);
+
+  if (
+    currentUser &&
+    String(currentUser.username || '').toLowerCase() ===
+      String(username || '').toLowerCase()
+  ) {
+    currentUser.profilePic = '';
+  }
+}
+
 async function banUserFromModeration(username) {
   if (!isAdmin()) return showToast('Access denied', 'Only Admin can ban users.');
 
@@ -2548,7 +2681,9 @@ async function banUserFromModeration(username) {
     u.banned = true;
     u.bannedUntil = null;
     u.banReason = finalReason;
+    u.profilePic = '';
     save(KEYS.users, users);
+    clearBannedUserPfp(username);
 
     getListings().filter(l => l.seller === username).forEach(l => {
       l.active = false;
@@ -3590,12 +3725,23 @@ async function removeTransactionByAdmin(txId) {
   showToast('Transaction removed',`#${txId} was removed.`);
 }
 
-async function toggleBanUserByAdmin(username) {
-  if (!isAdmin()) return showToast('Access denied','Admin only.');
+async function toggleBanUserByAdmin(username, knownBanned = null) {
+  if (!isMiddleman()) return showToast('Access denied','Middleman or Admin only.');
 
   const users = load(KEYS.users, []);
-  const u = users.find(x => x.username === username);
-  if (!u || username === 'fynx') return;
+  let u = users.find(x => x.username === username);
+  if (username === 'fynx') return;
+
+  if (!u) {
+    u = {
+      username,
+      displayName: username,
+      role: 'user',
+      banned: knownBanned === true,
+      bannedUntil: null,
+      banReason: ''
+    };
+  }
 
   let nextBanned;
   let nextReason;
@@ -3626,7 +3772,12 @@ async function toggleBanUserByAdmin(username) {
     u.banned = nextBanned;
     u.bannedUntil = null;
     u.banReason = nextReason;
+    if (nextBanned) u.profilePic = '';
+    const localIndex = users.findIndex(x => x.username === username);
+    if (localIndex >= 0) users[localIndex] = { ...users[localIndex], ...u };
+    else users.push(u);
     save(KEYS.users, users);
+    if (nextBanned) clearBannedUserPfp(username);
 
     renderAdmin();
     showToast(
@@ -3763,24 +3914,76 @@ async function searchUsers(query) {
   const box = document.getElementById('userSearchResults');
   if (!box) return;
   const q = String(query || '').trim();
-  if (!q) { box.innerHTML = '<div class="empty" style="padding:25px">Type a username to find someone.</div>'; return; }
+  if (!q) {
+    box.innerHTML = '<div class="empty" style="padding:25px">Type a username to find someone.</div>';
+    return;
+  }
+
   try {
-    const { data, error } = await supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(20);
-    if (error) throw error;
-    let users = data || [];
+    const [{ data: profiles, error: profileError }, { data: presence, error: presenceError }] = await Promise.all([
+      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason').ilike('username', `%${q}%`).limit(20),
+      supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(20)
+    ]);
+    if (profileError && presenceError) throw profileError || presenceError;
+
+    const presenceMap = {};
+    (presence || []).forEach(p => { presenceMap[String(p.username || '').toLowerCase()] = p; });
+    let users = (profiles || []).map(p => ({
+      username: p.username,
+      display_name: p.display_name || p.username,
+      online: !!presenceMap[String(p.username || '').toLowerCase()]?.online,
+      banned: !!p.banned,
+      ban_reason: p.ban_reason || '',
+      role: p.role || 'user'
+    }));
+
+    const seenUsers = new Set(users.map(u => String(u.username || '').toLowerCase()));
+    (presence || []).forEach(p => {
+      const key = String(p.username || '').toLowerCase();
+      if (key && !seenUsers.has(key)) {
+        users.push({ ...p, banned: false, ban_reason: '', role: 'user' });
+        seenUsers.add(key);
+      }
+    });
+
     if (!users.length) {
       const local = load(KEYS.users, []).filter(u => String(u.username || '').toLowerCase().includes(q.toLowerCase()));
-      users = local.map(u => ({ username:u.username, display_name:u.displayName || u.username, online:false }));
+      users = local.map(u => ({ username: u.username, display_name: u.displayName || u.username, online: false, banned: !!u.banned, ban_reason: u.banReason || '', role: u.role || 'user' }));
     }
-    if (!users.length) { box.innerHTML = '<div class="empty" style="padding:25px">No user found.</div>'; return; }
-    box.innerHTML = users.map(u => `
-      <div class="user-result">
-        <div onclick="openUserProfile(decodeURIComponent('${encodeURIComponent(String(u.username))}'))" style="cursor:pointer">
-          <div class="user-result-name">@${escapeHtml(u.username)} ${u.online ? '<span style="color:var(--success)">●</span>' : ''}</div>
-          <div class="user-result-meta">${escapeHtml(u.display_name || u.username)}</div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="openDirectMessageByUsername(decodeURIComponent('${encodeURIComponent(String(u.username))}'))">💬 Message</button>
-      </div>`).join('');
+
+    if (!users.length) {
+      box.innerHTML = '<div class="empty" style="padding:25px">No user found.</div>';
+      return;
+    }
+
+    box.innerHTML = users.map(u => {
+      const uname = String(u.username || '');
+      const local = getUser(uname);
+      const isBanned = !!u.banned || !!(local && local.banned);
+      const reason = u.ban_reason || local?.banReason || '';
+      const banAction = isMiddleman() && uname.toLowerCase() !== 'fynx'
+        ? `<button class="btn ${isBanned ? 'btn-outline' : 'btn-danger'} btn-sm" onclick="toggleBanUserByAdmin(decodeURIComponent('${encodeURIComponent(uname)}'), ${isBanned});event.stopPropagation()">${isBanned ? 'Unban' : 'Ban'}</button>`
+        : '';
+
+      return `
+        <div class="user-result">
+          <div onclick="openUserProfile(decodeURIComponent('${encodeURIComponent(uname)}'))" style="cursor:pointer;flex:1">
+            <div class="user-result-name">
+              @${escapeHtml(uname)}
+              ${u.online ? '<span style="color:var(--success)">●</span>' : ''}
+              ${isBanned ? '<span class="user-ban-badge">BANNED</span>' : ''}
+            </div>
+            <div class="user-result-meta">
+              ${escapeHtml(u.display_name || uname)}
+              ${isBanned && reason ? ` • ${escapeHtml(reason)}` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            ${banAction}
+            <button class="btn btn-primary btn-sm" onclick="openDirectMessageByUsername(decodeURIComponent('${encodeURIComponent(uname)}'))">💬 Message</button>
+          </div>
+        </div>`;
+    }).join('');
   } catch (err) {
     console.error('User search failed:', err);
     box.innerHTML = '<div class="empty" style="padding:25px">Could not search users.</div>';
@@ -3804,6 +4007,29 @@ async function openUserProfile(username) {
   if (!row) { showToast('User not found', `@${username} could not be found.`); return; }
   const uname = String(row.username);
   const display = String(row.display_name || uname);
+
+  let banInfo = { banned: false, reason: '' };
+  try {
+    const { data: profile } = await supabaseClient
+      .from('profiles')
+      .select('banned,ban_reason')
+      .eq('username', uname)
+      .maybeSingle();
+
+    if (profile) {
+      banInfo = {
+        banned: !!profile.banned,
+        reason: profile.ban_reason || ''
+      };
+    }
+  } catch (e) {
+    const local = getUser(uname);
+    banInfo = {
+      banned: !!(local && local.banned),
+      reason: local?.banReason || ''
+    };
+  }
+
   let posts = [];
   try {
     const { data } = await supabaseClient.from('public_listings').select('*').eq('seller_username', uname).order('created_at', {ascending:false});
@@ -3814,7 +4040,7 @@ async function openUserProfile(username) {
   document.getElementById('userProfileBody').innerHTML = `
     <div class="profile-header" style="margin-bottom:16px">
       <div class="profile-avatar">${escapeHtml(display.trim().split(/\\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase() || 'U')}</div>
-      <div><h2>${escapeHtml(display)} <span class="verified">✓ Verified</span></h2><div class="seller-presence"><span class="presence-dot ${row.online ? 'online' : ''}"></span>${row.online ? 'Online' : 'Offline'}</div><div style="color:var(--text2);margin-top:6px">@${escapeHtml(uname)}</div></div>
+      <div><h2>${escapeHtml(display)} <span class="verified">✓ Verified</span>${banInfo.banned ? ' <span class="user-ban-badge">BANNED</span>' : ''}</h2><div class="seller-presence"><span class="presence-dot ${row.online ? 'online' : ''}"></span>${row.online ? 'Online' : 'Offline'}</div><div style="color:var(--text2);margin-top:6px">@${escapeHtml(uname)}</div></div>
     </div>
     <button class="btn btn-primary" onclick="openDirectMessageByUsername(decodeURIComponent('${encodeURIComponent(uname)}'));closeModal('userProfileModal')">💬 Message this user</button>
     <h3 style="margin-top:22px">Posts by @${escapeHtml(uname)}</h3>
