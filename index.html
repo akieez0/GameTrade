@@ -1992,8 +1992,11 @@ async function doSignup() {
   try {
     const { data: existing, error: checkError } = await supabaseClient
       .from('profiles').select('username').ilike('username', user).limit(1);
-    if (checkError) throw checkError;
-    if (existing && existing.length) return showAuthError('Username already taken. Try another or Login.');
+    if (!checkError && existing && existing.length) {
+      return showAuthError('Username already taken. Try another or Login.');
+    }
+    // If anonymous SELECT is blocked by RLS, continue with Auth signup.
+    // The profile INSERT below is still protected by the authenticated INSERT policy.
 
     const authEmail = `${user.toLowerCase()}@accounts.gameflipph.local`;
     const { data: authData, error: authError } = await supabaseClient.auth.signUp({
@@ -2325,7 +2328,7 @@ function getUser(username) {
 
 function isUserOnline(user) {
   if (!user || !user.lastSeen) return false;
-  return (Date.now() - Number(user.lastSeen)) < 90000;
+  return (Date.now() - Number(user.lastSeen)) < 10000;
 }
 
 function getPresenceHtml(username, compact = false) {
@@ -2333,7 +2336,7 @@ function getPresenceHtml(username, compact = false) {
   const remote = publicPresence[key];
   if (remote) {
     const seen = remote.last_seen ? Date.parse(remote.last_seen) : 0;
-    const online = !!remote.online && seen && (Date.now() - seen < 90000);
+    const online = !!remote.online && seen && (Date.now() - seen < 10000);
     const role = String(remote.role || 'user').toLowerCase();
     const avail = String(remote.mm_availability || 'AVAILABLE').toUpperCase();
     if (role === 'middleman' || role === 'admin') {
