@@ -1721,22 +1721,58 @@ function showAuthError(msg) {
   el.classList.add('show');
 }
 
-function doLogin() {
+async function doLogin() {
   document.getElementById('authError').classList.remove('show');
   const user = document.getElementById('loginUser').value.trim();
   const pass = document.getElementById('loginPass').value;
   if (!user || !pass) return showAuthError('Please enter username and password.');
-  const users = load(KEYS.users, []);
-  if (!Array.isArray(users) || users.length === 0) {
-    return showAuthError('No accounts found. Please Sign Up first.');
+
+  const username = user.replace(/\s+/g, '');
+  let byName = null;
+
+  // PRIMARY: Supabase account (works across devices)
+  try {
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .ilike('username', username)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Supabase login error:', error);
+    } else if (data) {
+      if (String(data.password) !== String(pass)) {
+        return showAuthError('Wrong password. Passwords are case-sensitive.');
+      }
+      byName = {
+        username: data.username,
+        password: data.password,
+        displayName: data.display_name || data.displayName || data.username,
+        location: data.location || 'Philippines',
+        joined: data.joined || getPHT(),
+        role: data.role || 'user',
+        mmAvailability: data.mm_availability || data.mmAvailability || 'AVAILABLE',
+        moderationStrikes: Number(data.moderation_strikes || data.moderationStrikes || 0),
+        banned: !!data.banned,
+        bannedUntil: data.banned_until || data.bannedUntil || null,
+        banReason: data.ban_reason || data.banReason || ''
+      };
+    }
+  } catch (e) {
+    console.error('Supabase login exception:', e);
   }
-  const byName = users.find(u => u.username && u.username.toLowerCase() === user.toLowerCase());
+
+  // FALLBACK: keep old/local accounts working on this browser.
   if (!byName) {
-    return showAuthError('Username not found. Check spelling or Sign Up first.');
+    const users = load(KEYS.users, []);
+    byName = Array.isArray(users)
+      ? users.find(u => u.username && u.username.toLowerCase() === username.toLowerCase())
+      : null;
   }
-  if (String(byName.password) !== String(pass)) {
-    return showAuthError('Wrong password. Passwords are case-sensitive.');
-  }
+
+  if (!byName) return showAuthError('Username not found. Please Sign Up first.');
+
   if (byName.banned) {
     const until = byName.bannedUntil ? Date.parse(byName.bannedUntil) : null;
     if (!until || until > Date.now()) {
@@ -1744,14 +1780,22 @@ function doLogin() {
     }
     byName.banned = false;
     byName.bannedUntil = null;
-    const allUsers = load(KEYS.users, []);
-    const savedUser = allUsers.find(u => u.username === byName.username);
-    if (savedUser) { savedUser.banned = false; savedUser.bannedUntil = null; save(KEYS.users, allUsers); }
   }
+
   currentUser = byName;
+  // Mirror the Supabase account locally so the existing app features continue to work.
+  const localUsers = load(KEYS.users, []);
+  const idx = Array.isArray(localUsers)
+    ? localUsers.findIndex(u => u.username && u.username.toLowerCase() === byName.username.toLowerCase())
+    : -1;
+  if (idx >= 0) localUsers[idx] = { ...localUsers[idx], ...byName };
+  else localUsers.push(byName);
+  save(KEYS.users, localUsers);
+
   if (!save(KEYS.session, { username: byName.username })) {
     return showAuthError('Could not save session. Try again.');
   }
+
   try {
     enterApp();
     showToast('Welcome back!', `Logged in as @${byName.username}`);
@@ -1761,62 +1805,87 @@ function doLogin() {
   }
 }
 
-function doSignup() {
+async function doSignup() {
   document.getElementById('authError').classList.remove('show');
-  let user = document.getElementById('signupUser').value.trim();
+  let user = document.getElementById('signupUser').value.trim().replace(/\s+/g, '');
   const name = document.getElementById('signupName').value.trim() || user;
   const loc = document.getElementById('signupLoc').value || 'Philippines';
   const pass = document.getElementById('signupPass').value;
   const pass2 = document.getElementById('signupPass2').value;
-  // Normalize username: no spaces
-  user = user.replace(/\s+/g, '');
+
   if (!user || user.length < 3) return showAuthError('Username must be at least 3 characters (no spaces).');
   if (!/^[a-zA-Z0-9_]+$/.test(user)) return showAuthError('Username: letters, numbers, underscore only.');
   if (pass.length < 6) return showAuthError('Password must be at least 6 characters.');
   if (pass !== pass2) return showAuthError('Passwords do not match.');
-  let users = load(KEYS.users, []);
-  if (!Array.isArray(users)) users = [];
-  if (users.find(u => u.username && u.username.toLowerCase() === user.toLowerCase())) {
-    return showAuthError('Username already taken. Try another or Login.');
-  }
-  const newUser = {
-    username: user,
-    password: pass,
-    displayName: name || user,
-    location: loc,
-    joined: getPHT(),
-    role: 'user',
-    mmAvailability: 'AVAILABLE',
-    moderationStrikes: 0,
-    banned: false,
-    bannedUntil: null,
-    banReason: ''
-  };
-  users.push(newUser);
-  if (!save(KEYS.users, users)) {
-    return showAuthError('Could not save account (storage full?). Delete large listing photos and try again.');
-  }
-  // Verify it was saved
-  const verify = load(KEYS.users, []).find(u => u.username && u.username.toLowerCase() === user.toLowerCase());
-  if (!verify) {
-    return showAuthError('Account save failed. Try a different browser or clear site data.');
-  }
-  currentUser = verify;
-  save(KEYS.session, { username: verify.username });
-  // Clear signup fields
-  document.getElementById('signupUser').value = '';
-  document.getElementById('signupName').value = '';
-  document.getElementById('signupPass').value = '';
-  document.getElementById('signupPass2').value = '';
+
+  // Check Supabase first so duplicate accounts are blocked across devices.
   try {
+    const { data: existing, error: checkError } = await supabaseClient
+      .from('profiles').select('username').ilike('username', user).limit(1);
+    if (!checkError && existing && existing.length) {
+      return showAuthError('Username already taken. Try another or Login.');
+    }
+
+    const newUser = {
+      username: user,
+      password: pass,
+      display_name: name || user,
+      location: loc,
+      joined: getPHT(),
+      role: 'user',
+      mm_availability: 'AVAILABLE',
+      moderation_strikes: 0,
+      banned: false,
+      banned_until: null,
+      ban_reason: ''
+    };
+
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .insert(newUser)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Supabase signup error:', error);
+      return showAuthError('Could not save account to Supabase. Check your profiles table/RLS.');
+    }
+
+    const verify = {
+      username: data.username,
+      password: data.password,
+      displayName: data.display_name || data.username,
+      location: data.location || 'Philippines',
+      joined: data.joined || getPHT(),
+      role: data.role || 'user',
+      mmAvailability: data.mm_availability || 'AVAILABLE',
+      moderationStrikes: Number(data.moderation_strikes || 0),
+      banned: !!data.banned,
+      bannedUntil: data.banned_until || null,
+      banReason: data.ban_reason || ''
+    };
+
+    const users = load(KEYS.users, []);
+    const cleanUsers = Array.isArray(users) ? users : [];
+    cleanUsers.push(verify);
+    save(KEYS.users, cleanUsers);
+    currentUser = verify;
+    save(KEYS.session, { username: verify.username });
+
+    document.getElementById('signupUser').value = '';
+    document.getElementById('signupName').value = '';
+    document.getElementById('signupPass').value = '';
+    document.getElementById('signupPass2').value = '';
+
     enterApp();
     showToast('Account created!', `Welcome @${verify.username}! You can now post listings.`);
-  } catch (err) {
-    console.error(err);
-    showAuthError('Account saved but UI failed. Please Login with your new account.');
-    switchAuth('login');
-    document.getElementById('loginUser').value = verify.username;
+    return;
+  } catch (e) {
+    console.error('Supabase signup exception:', e);
   }
+
+  // Do not silently create a local-only account if Supabase failed.
+  return showAuthError('Could not connect to Supabase. Please check your internet connection and try again.');
 }
 
 function isMiddleman() {
@@ -3586,10 +3655,10 @@ document.addEventListener('DOMContentLoaded', function () {
     try { switchAuth('signup'); } catch (e) { console.error(e); }
   });
   if (loginBtn) loginBtn.addEventListener('click', function () {
-    try { doLogin(); } catch (e) { console.error(e); showAuthError('Login error. Please refresh and try again.'); }
+    doLogin().catch(e => { console.error(e); showAuthError('Login error. Please refresh and try again.'); });
   });
   if (signupBtn) signupBtn.addEventListener('click', function () {
-    try { doSignup(); } catch (e) { console.error(e); showAuthError('Sign up error. Please refresh and try again.'); }
+    doSignup().catch(e => { console.error(e); showAuthError('Sign up error. Please refresh and try again.'); });
   });
 });
 
