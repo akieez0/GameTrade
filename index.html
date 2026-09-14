@@ -994,7 +994,7 @@ thead th{
       <p class="subtitle">All your buys and sells • Times in Philippine Standard Time (PHT)</p>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:8px;font-size:.9rem;cursor:pointer"><input type="checkbox" id="selectAllFinishedTx" onchange="toggleAllFinishedTransactions(this.checked)"> Select all finished</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:.9rem;cursor:pointer"><input type="checkbox" id="selectAllFinishedTx" onchange="toggleAllFinishedTransactions(this.checked)"> Select all</label>
           <button class="btn btn-danger btn-sm" onclick="removeSelectedTransactions()">✕ Remove Selected</button>
         </div>
         <table>
@@ -3488,29 +3488,21 @@ function toggleAllFinishedTransactions(checked) {
 async function removeSelectedTransactions() {
   if (!currentUser) return;
   const selected = [...selectedFinishedTransactions];
-  if (!selected.length) return showToast('Nothing selected', 'Select one or more finished transactions first.');
+  if (!selected.length) return showToast('Nothing selected', 'Select one or more transactions first.');
   const txs = getTransactions();
   const valid = selected.filter(id => {
     const tx = txs.find(t => String(t.id) === String(id));
-    return tx && ['COMPLETED','CANCELLED'].includes(tx.status) && [tx.buyer, tx.seller, tx.mm].includes(currentUser.username);
+    return tx && [tx.buyer, tx.seller, tx.mm].includes(currentUser.username);
   });
-  if (!valid.length) return showToast('Nothing to remove', 'Only your completed or cancelled transactions can be removed.');
+  if (!valid.length) return showToast('Nothing to remove', 'Only transactions you are part of can be removed from your list.');
   if (!confirm(`Remove ${valid.length} selected transaction${valid.length > 1 ? 's' : ''} from your list?`)) return;
   const hidden = load(KEYS.hiddenTransactions, {});
   hidden[currentUser.username] = hidden[currentUser.username] || [];
   valid.forEach(id => {
-    const tx = txs.find(t => String(t.id) === String(id));
-    if (tx) {
-      tx.gcClosed = true;
-      tx.gcClosedAt = getPHT();
-      tx.gcClosedBy = currentUser.username;
-    }
     if (!hidden[currentUser.username].includes(String(id))) hidden[currentUser.username].push(String(id));
     selectedFinishedTransactions.delete(String(id));
   });
   save(KEYS.hiddenTransactions, hidden);
-  await syncPublicTransactions(valid.map(id => txs.find(t => String(t.id) === String(id))).filter(Boolean));
-  save(KEYS.transactions, txs);
   if (currentTx && valid.includes(String(currentTx.id))) {
     currentTx = null;
     localStorage.removeItem(KEYS.uiTx);
@@ -3518,6 +3510,8 @@ async function removeSelectedTransactions() {
   renderTransactions();
   renderGcList();
   renderMmActive();
+  const all = document.getElementById('selectAllFinishedTx');
+  if (all) all.checked = false;
   showToast('Removed', `${valid.length} transaction${valid.length > 1 ? 's' : ''} removed from your list.`);
 }
 
@@ -3539,9 +3533,7 @@ function renderTransactions() {
     const gcBtn = t.gcClosed
       ? '<span style="color:var(--text2);font-size:0.8rem">GC closed</span>'
       : `<button class="btn btn-outline btn-sm" onclick="showPage('gc');openGc('${t.id}')">Access GC</button>`;
-    const selectBox = ['COMPLETED','CANCELLED'].includes(t.status)
-      ? `<input type="checkbox" class="tx-select-finished" value="${escapeHtml(t.id)}" onchange="setFinishedTransactionSelected('${escapeHtml(t.id)}', this.checked)" ${selectedFinishedTransactions.has(String(t.id)) ? 'checked' : ''} aria-label="Select transaction ${escapeHtml(t.id)}">`
-      : '';
+    const selectBox = `<input type="checkbox" class="tx-select-finished" value="${escapeHtml(t.id)}" onchange="setFinishedTransactionSelected('${escapeHtml(t.id)}', this.checked)" ${selectedFinishedTransactions.has(String(t.id)) ? 'checked' : ''} aria-label="Select transaction ${escapeHtml(t.id)}">`;
     return `
     <tr>
       <td>${selectBox}</td>
