@@ -730,6 +730,32 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style id="smooth-staff-delete-style">
+@keyframes staffDeleteIn {
+  from { opacity:0; transform:translateY(-4px) scale(.82); }
+  to { opacity:1; transform:translateY(0) scale(1); }
+}
+@keyframes staffDeletePulse {
+  0%,100% { box-shadow:0 2px 8px rgba(0,0,0,.10); }
+  50% { box-shadow:0 4px 14px rgba(0,0,0,.18); }
+}
+.staff-delete-btn {
+  position:absolute !important; top:9px !important; right:9px !important; z-index:10 !important;
+  width:28px !important; height:28px !important; min-width:28px !important;
+  padding:0 !important; margin:0 !important; border-radius:50% !important;
+  display:flex !important; align-items:center !important; justify-content:center !important;
+  box-sizing:border-box !important;
+  aspect-ratio:1 / 1 !important;
+  font-size:11px !important; line-height:28px !important;
+  opacity:.78; transition:transform .18s ease, opacity .18s ease, box-shadow .18s ease, filter .18s ease;
+  animation:staffDeleteIn .25s ease-out both;
+}
+.staff-delete-btn:hover { opacity:1; transform:scale(1.10); filter:brightness(1.04); animation:staffDeletePulse 1.1s ease-in-out infinite; }
+.staff-delete-btn:active { transform:scale(.94); animation:none; }
+.staff-delete-btn:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+</style>
+
 </head>
 <body>
 
@@ -1371,6 +1397,64 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_0FqNKIPBKeLaLux8aItSYA_X28OEbeF
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let publicPresence = {};
 
+// ========== BAN REALTIME ONLY ==========
+function startBanRealtimeListener() {
+  try {
+    if (!supabaseClient || window.__banRealtimeStarted) return;
+
+    window.__banRealtimeStarted = true;
+
+    supabaseClient
+      .channel('profile-ban-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles'
+        },
+        async (payload) => {
+          try {
+            if (!currentUser || !payload || !payload.new) return;
+
+            const row = payload.new;
+            const sameUser =
+              String(row.username || '').toLowerCase() ===
+              String(currentUser.username || '').toLowerCase();
+
+            if (!sameUser || !row.banned) return;
+
+            currentUser.banned = true;
+            currentUser.bannedUntil = row.banned_until || null;
+            currentUser.banReason = row.ban_reason || 'Moderation violation';
+
+            const banMessage = row.ban_reason || 'Moderation violation';
+
+            // Use the site's existing logout flow so UI/session behavior stays unchanged.
+            logout();
+
+            try {
+              await supabaseClient.auth.signOut();
+            } catch (signOutError) {
+              console.error('Supabase ban signout failed:', signOutError);
+            }
+
+            showAuthError(`Account banned: ${banMessage}.`);
+          } catch (err) {
+            console.error('Ban Realtime handler failed:', err);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Ban Realtime:', status);
+      });
+  } catch (err) {
+    console.error('Ban Realtime setup failed:', err);
+  }
+}
+
+startBanRealtimeListener();
+
 function publicRowToListing(row) {
   return {
     id: row.id,
@@ -1723,91 +1807,61 @@ function showAuthError(msg) {
 
 async function doLogin() {
   document.getElementById('authError').classList.remove('show');
-  const user = document.getElementById('loginUser').value.trim();
+  const user = document.getElementById('loginUser').value.trim().replace(/\s+/g, '');
   const pass = document.getElementById('loginPass').value;
   if (!user || !pass) return showAuthError('Please enter username and password.');
 
-  const username = user.replace(/\s+/g, '');
-  let byName = null;
-
-  // PRIMARY: Supabase account (works across devices)
+  // Production login: Supabase Auth. Username is mapped to a private internal email.
   try {
-    const { data, error } = await supabaseClient
-      .from('profiles')
-      .select('*')
-      .ilike('username', username)
-      .limit(1)
-      .maybeSingle();
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles').select('*').ilike('username', user).limit(1).maybeSingle();
+    if (profileError) throw profileError;
+    if (!profile) return showAuthError('Username not found. Please Sign Up first.');
 
-    if (error) {
-      console.error('Supabase login error:', error);
-    } else if (data) {
-      if (String(data.password) !== String(pass)) {
-        return showAuthError('Wrong password. Passwords are case-sensitive.');
-      }
-      byName = {
-        username: data.username,
-        password: data.password,
-        displayName: data.display_name || data.displayName || data.username,
-        location: data.location || 'Philippines',
-        joined: data.joined || getPHT(),
-        role: data.role || 'user',
-        mmAvailability: data.mm_availability || data.mmAvailability || 'AVAILABLE',
-        moderationStrikes: Number(data.moderation_strikes || data.moderationStrikes || 0),
-        banned: !!data.banned,
-        bannedUntil: data.banned_until || data.bannedUntil || null,
-        banReason: data.ban_reason || data.banReason || ''
-      };
+    const authEmail = profile.auth_email || `${String(profile.username).toLowerCase()}@accounts.gameflipph.local`;
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+      email: authEmail,
+      password: pass
+    });
+    if (authError) {
+      console.error('Supabase Auth login error:', authError);
+      return showAuthError('Wrong username or password.');
     }
-  } catch (e) {
-    console.error('Supabase login exception:', e);
-  }
 
-  // FALLBACK: keep old/local accounts working on this browser.
-  if (!byName) {
-    const users = load(KEYS.users, []);
-    byName = Array.isArray(users)
-      ? users.find(u => u.username && u.username.toLowerCase() === username.toLowerCase())
-      : null;
-  }
+    const byName = {
+      ...profile,
+      username: profile.username,
+      password: pass,
+      displayName: profile.display_name || profile.username,
+      location: profile.location || 'Philippines',
+      joined: profile.joined || getPHT(),
+      role: profile.role || 'user',
+      mmAvailability: profile.mm_availability || 'AVAILABLE',
+      moderationStrikes: Number(profile.moderation_strikes || 0),
+      banned: !!profile.banned,
+      bannedUntil: profile.banned_until || null,
+      banReason: profile.ban_reason || ''
+    };
 
-  if (!byName) return showAuthError('Username not found. Please Sign Up first.');
-
-  if (byName.banned) {
-    const until = byName.bannedUntil ? Date.parse(byName.bannedUntil) : null;
-    if (!until || until > Date.now()) {
-      return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
-    }
-    byName.banned = false;
-    byName.bannedUntil = null;
-  }
-
-  currentUser = byName;
-  // Mirror the Supabase account locally so the existing app features continue to work.
-  const localUsers = load(KEYS.users, []);
-  const idx = Array.isArray(localUsers)
-    ? localUsers.findIndex(u => u.username && u.username.toLowerCase() === byName.username.toLowerCase())
-    : -1;
-  if (idx >= 0) localUsers[idx] = { ...localUsers[idx], ...byName };
-  else localUsers.push(byName);
-  save(KEYS.users, localUsers);
-
-  if (!save(KEYS.session, { username: byName.username })) {
-    return showAuthError('Could not save session. Try again.');
-  }
-
-  try {
+    if (byName.banned) return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
+    currentUser = byName;
+    save(KEYS.session, { username: byName.username });
+    const localUsers = load(KEYS.users, []);
+    const idx = localUsers.findIndex(u => String(u.username).toLowerCase() === String(byName.username).toLowerCase());
+    if (idx >= 0) localUsers[idx] = { ...localUsers[idx], ...byName };
+    else localUsers.push(byName);
+    save(KEYS.users, localUsers);
     enterApp();
     showToast('Welcome back!', `Logged in as @${byName.username}`);
   } catch (err) {
-    console.error(err);
-    showAuthError('Login UI error. Refresh the page and try again.');
+    console.error('Login failed:', err);
+    showAuthError('Unable to log in. Check your Supabase connection/settings.');
   }
 }
 
 async function doSignup() {
   document.getElementById('authError').classList.remove('show');
-  let user = document.getElementById('signupUser').value.trim().replace(/\s+/g, '');
+  const user = document.getElementById('signupUser').value.trim().replace(/\s+/g, '');
   const name = document.getElementById('signupName').value.trim() || user;
   const loc = document.getElementById('signupLoc').value || 'Philippines';
   const pass = document.getElementById('signupPass').value;
@@ -1818,18 +1872,30 @@ async function doSignup() {
   if (pass.length < 6) return showAuthError('Password must be at least 6 characters.');
   if (pass !== pass2) return showAuthError('Passwords do not match.');
 
-  // Check Supabase first so duplicate accounts are blocked across devices.
   try {
     const { data: existing, error: checkError } = await supabaseClient
       .from('profiles').select('username').ilike('username', user).limit(1);
-    if (!checkError && existing && existing.length) {
-      return showAuthError('Username already taken. Try another or Login.');
-    }
+    if (checkError) throw checkError;
+    if (existing && existing.length) return showAuthError('Username already taken. Try another or Login.');
 
-    const newUser = {
-      username: user,
+    const authEmail = `${user.toLowerCase()}@accounts.gameflipph.local`;
+    const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+      email: authEmail,
       password: pass,
-      display_name: name || user,
+      options: { data: { username: user, display_name: name } }
+    });
+    if (authError) {
+      console.error('Supabase Auth signup error:', authError);
+      return showAuthError(authError.message || 'Could not create account.');
+    }
+    if (!authData.user) return showAuthError('Could not create account.');
+    if (!authData.session) return showAuthError('Account created, but Supabase email confirmation is enabled. Disable email confirmation in Supabase Auth settings, then sign up again.');
+
+    const profileRow = {
+      id: authData.user.id,
+      username: user,
+      auth_email: authEmail,
+      display_name: name,
       location: loc,
       joined: getPHT(),
       role: 'user',
@@ -1839,53 +1905,28 @@ async function doSignup() {
       banned_until: null,
       ban_reason: ''
     };
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles').insert(profileRow).select('*').single();
+    if (profileError) throw profileError;
 
-    const { data, error } = await supabaseClient
-      .from('profiles')
-      .insert(newUser)
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Supabase signup error:', error);
-      return showAuthError('Could not save account to Supabase. Check your profiles table/RLS.');
-    }
-
-    const verify = {
-      username: data.username,
-      password: data.password,
-      displayName: data.display_name || data.username,
-      location: data.location || 'Philippines',
-      joined: data.joined || getPHT(),
-      role: data.role || 'user',
-      mmAvailability: data.mm_availability || 'AVAILABLE',
-      moderationStrikes: Number(data.moderation_strikes || 0),
-      banned: !!data.banned,
-      bannedUntil: data.banned_until || null,
-      banReason: data.ban_reason || ''
+    currentUser = {
+      ...profile,
+      password: pass,
+      displayName: profile.display_name || user,
+      mmAvailability: profile.mm_availability || 'AVAILABLE',
+      moderationStrikes: 0,
+      banned: false
     };
-
-    const users = load(KEYS.users, []);
-    const cleanUsers = Array.isArray(users) ? users : [];
-    cleanUsers.push(verify);
-    save(KEYS.users, cleanUsers);
-    currentUser = verify;
-    save(KEYS.session, { username: verify.username });
-
-    document.getElementById('signupUser').value = '';
-    document.getElementById('signupName').value = '';
-    document.getElementById('signupPass').value = '';
-    document.getElementById('signupPass2').value = '';
-
+    const localUsers = load(KEYS.users, []);
+    localUsers.push(currentUser);
+    save(KEYS.users, localUsers);
+    save(KEYS.session, { username: user });
     enterApp();
-    showToast('Account created!', `Welcome @${verify.username}! You can now post listings.`);
-    return;
-  } catch (e) {
-    console.error('Supabase signup exception:', e);
+    showToast('Account created!', `Welcome @${user}`);
+  } catch (err) {
+    console.error('Signup failed:', err);
+    showAuthError(err?.message || 'Could not create account. Check your Supabase profiles table/RLS.');
   }
-
-  // Do not silently create a local-only account if Supabase failed.
-  return showAuthError('Could not connect to Supabase. Please check your internet connection and try again.');
 }
 
 function isMiddleman() {
@@ -2090,7 +2131,7 @@ function updateNavUser() {
       const apps = load(KEYS.mmApps, []);
       const myApp = apps.find(a => a.username === currentUser.username && a.status === 'pending');
       if (myApp) {
-        mmInfo.innerHTML = `<div class="card" style="padding:14px 18px;border-color:var(--warning)"><strong style="color:var(--warning)">⏳ Middleman application pending</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px">You applied on ${escapeHtml(myApp.date || '')}. Wait for Admin approval. You will be promoted when ready.</p></div>`;
+        mmInfo.innerHTML = `<div class="card" style="padding:14px 18px;border-color:var(--warning)"><strong style="color:var(--warning)">⏳ Middleman application pending</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px">You applied on ${escapeHtml(myApp.date || '')}. Wait for Admin approval. You will be promoted when ready.</p><button class="btn btn-outline btn-sm" style="margin-top:10px;border-color:var(--danger);color:#ff6b6b" onclick="cancelMmApplication('${escapeHtml(myApp.id)}')">✕ Cancel Application</button></div>`;
       } else {
         mmInfo.innerHTML = `<div class="card" style="padding:14px 18px"><strong>You are not a Middleman</strong><p style="color:var(--text2);font-size:0.85rem;margin-top:4px;margin-bottom:12px">Apply to become an official Middleman. The Admin will approve — they have the final say. Once approved, you will be responsible for the deals.</p><button class="btn btn-primary btn-sm" onclick="applyAsMiddleman()">📝 Apply as Middleman</button></div>`;
       }
@@ -2237,7 +2278,8 @@ function renderListings() {
       ? `<img src="${l.image}" alt="${escapeHtml(l.title)}" loading="lazy">`
       : (l.emoji || GAME_EMOJIS[l.game] || '🎮');
     return `
-    <div class="card" onclick="openListing(${l.id})">
+    <div class="card" style="position:relative" onclick="openListing(${l.id})">
+      ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" onclick="event.stopPropagation();deleteListingAsStaff(${l.id})">✕</button>` : ''}
       <div class="card-img">
         <span class="card-badge">${escapeHtml(l.server)}</span>
         ${imgHtml}
@@ -2479,22 +2521,47 @@ async function setListingModeration(listingId, action) {
   renderModeration();
 }
 
-function banUserFromModeration(username) {
+async function banUserFromModeration(username) {
   if (!isAdmin()) return showToast('Access denied', 'Only Admin can ban users.');
+
   const users = load(KEYS.users, []);
   const u = users.find(x => x.username === username);
   if (!u || u.username === 'fynx') return;
+
   const reason = prompt(`Ban @${username}? Enter reason:`, 'Spam / trolling');
   if (reason === null) return;
-  u.banned = true;
-  u.bannedUntil = null;
-  u.banReason = reason.trim() || 'Moderation violation';
-  save(KEYS.users, users);
-  getListings().filter(l => l.seller === username).forEach(l => { l.active = false; });
-  save(KEYS.listings, getListings());
-  showToast('User banned', `@${username} is now banned and their listings are hidden.`);
-  renderModeration();
-  renderListings();
+
+  const finalReason = reason.trim() || 'Moderation violation';
+
+  try {
+    const { error } = await supabaseClient
+      .from('profiles')
+      .update({
+        banned: true,
+        banned_until: null,
+        ban_reason: finalReason
+      })
+      .eq('username', username);
+
+    if (error) throw error;
+
+    u.banned = true;
+    u.bannedUntil = null;
+    u.banReason = finalReason;
+    save(KEYS.users, users);
+
+    getListings().filter(l => l.seller === username).forEach(l => {
+      l.active = false;
+    });
+    save(KEYS.listings, getListings());
+
+    showToast('User banned', `@${username} is now banned and their listings are hidden.`);
+    renderModeration();
+    renderListings();
+  } catch (err) {
+    console.error('Supabase ban failed:', err);
+    showToast('Ban failed', 'Could not save the ban to Supabase.');
+  }
 }
 
 function renderModeration() {
@@ -2547,6 +2614,28 @@ function renderMyListings() {
       </td>
     </tr>
   `).join('');
+}
+
+async function deleteListingAsStaff(id) {
+  if (!currentUser || !(isAdmin() || isMiddleman())) {
+    showToast('Access denied', 'Only Admin or Middleman can delete posts.');
+    return;
+  }
+  if (!confirm('Delete this post permanently?')) return;
+  try {
+    await deletePublicListing(id);
+    let listings = load(KEYS.listings, []);
+    listings = listings.filter(l => String(l.id) !== String(id));
+    save(KEYS.listings, listings);
+    await loadPublicListings();
+    renderListings();
+    renderMyListings();
+    if (typeof renderAdmin === 'function' && isAdmin()) renderAdmin();
+    showToast('Post deleted', 'The post was removed successfully.');
+  } catch (err) {
+    console.error('Staff delete failed:', err);
+    showToast('Error', 'Could not delete the post.');
+  }
 }
 
 async function deleteListing(id) {
@@ -3376,7 +3465,37 @@ async function applyAsMiddleman() {
   showToast('Application submitted', 'Submitted. Wait for the Admin to approve your Middleman application.');
 }
 
-function approveMmApp(appId) {
+async function cancelMmApplication(appId) {
+  if (!currentUser) return;
+  const apps = load(KEYS.mmApps, []);
+  const app = apps.find(a => String(a.id) === String(appId) && a.username === currentUser.username && a.status === 'pending');
+  if (!app) return showToast('Not found', 'Your pending application could not be found.');
+  if (!confirm('Cancel your Middleman application?')) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from('mm_applications')
+      .update({ status: 'cancelled', reviewed_at: new Date().toISOString(), reviewed_by: currentUser.username })
+      .eq('id', String(appId))
+      .eq('username', currentUser.username)
+      .eq('status', 'pending');
+    if (error) throw error;
+  } catch (e) {
+    console.error('Supabase MM application cancel failed:', e);
+    // Keep the existing local behavior usable if the optional Supabase history columns are unavailable.
+  }
+
+  app.status = 'cancelled';
+  app.reviewedAt = getPHT();
+  app.reviewedBy = currentUser.username;
+  save(KEYS.mmApps, apps);
+  updateNavUser();
+  refreshAdminAppBadge();
+  renderAdmin();
+  showToast('Application cancelled', 'Your Middleman application was cancelled.');
+}
+
+async function approveMmApp(appId) {
   if (!isAdmin()) return;
   const apps = load(KEYS.mmApps, []);
   const app = apps.find(a => a.id === appId);
@@ -3385,13 +3504,21 @@ function approveMmApp(appId) {
   app.reviewedAt = getPHT();
   app.reviewedBy = currentUser.username;
   save(KEYS.mmApps, apps);
-  setUserRole(app.username, 'middleman');
+  try {
+    const { error } = await supabaseClient.from('mm_applications').update({
+      status: 'approved',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: currentUser.username
+    }).eq('id', String(appId));
+    if (error) console.error('Supabase MM approve sync failed:', error);
+  } catch (e) { console.error('Supabase MM approve exception:', e); }
+  await setUserRole(app.username, 'middleman');
   showToast('Approved', `@${app.username} is now official Middleman. They are now responsible for the deals.`);
   refreshAdminAppBadge();
   renderAdmin();
 }
 
-function rejectMmApp(appId) {
+async function rejectMmApp(appId) {
   if (!isAdmin()) return;
   const apps = load(KEYS.mmApps, []);
   const app = apps.find(a => a.id === appId);
@@ -3400,12 +3527,20 @@ function rejectMmApp(appId) {
   app.reviewedAt = getPHT();
   app.reviewedBy = currentUser.username;
   save(KEYS.mmApps, apps);
+  try {
+    const { error } = await supabaseClient.from('mm_applications').update({
+      status: 'rejected',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: currentUser.username
+    }).eq('id', String(appId));
+    if (error) console.error('Supabase MM reject sync failed:', error);
+  } catch (e) { console.error('Supabase MM reject exception:', e); }
   showToast('Rejected', `Application ni @${app.username} tinanggihan.`);
   refreshAdminAppBadge();
   renderAdmin();
 }
 
-function setUserRole(username, newRole) {
+async function setUserRole(username, newRole) {
   if (!isAdmin()) {
     showToast('Access denied', 'Admin only.');
     return;
@@ -3422,6 +3557,13 @@ function setUserRole(username, newRole) {
     u.mmAvailability = 'AVAILABLE';
   }
   save(KEYS.users, users);
+  try {
+    const { error } = await supabaseClient.from('profiles').update({
+      role: newRole,
+      mm_availability: newRole === 'middleman' ? (u.mmAvailability || 'AVAILABLE') : (u.mmAvailability || 'AVAILABLE')
+    }).eq('username', username);
+    if (error) console.error('Supabase role sync failed:', error);
+  } catch (e) { console.error('Supabase role sync exception:', e); }
   if (currentUser && currentUser.username === username) {
     currentUser.role = newRole;
     if (newRole === 'middleman') currentUser.mmAvailability = u.mmAvailability || 'AVAILABLE';
@@ -3441,7 +3583,6 @@ async function removeTransactionByAdmin(txId) {
   if (!isAdmin()) return showToast('Access denied','Admin only.');
   const tx=getTransactions().find(t=>String(t.id)===String(txId));
   if (!tx) return;
-  if (!['COMPLETED','CANCELLED'].includes(tx.status)) return showToast('Not yet','Only completed or cancelled transactions can be removed.');
   if (!confirm(`Remove transaction #${txId}?`)) return;
   try { await deletePublicTransaction(txId); } catch(e) { console.error(e); showToast('Error','Could not remove the public transaction.'); return; }
   save(KEYS.transactions,getTransactions().filter(t=>String(t.id)!==String(txId)));
@@ -3449,14 +3590,56 @@ async function removeTransactionByAdmin(txId) {
   showToast('Transaction removed',`#${txId} was removed.`);
 }
 
-function toggleBanUserByAdmin(username) {
+async function toggleBanUserByAdmin(username) {
   if (!isAdmin()) return showToast('Access denied','Admin only.');
-  const users=load(KEYS.users,[]), u=users.find(x=>x.username===username);
-  if (!u || username==='fynx') return;
-  if (u.banned) { if(!confirm(`Unban @${username}?`)) return; u.banned=false; u.banReason=''; }
-  else { const reason=prompt(`Ban @${username}? Reason:`,'Trolling / spam'); if(reason===null)return; u.banned=true; u.banReason=reason||'Moderation violation'; }
-  save(KEYS.users,users); renderAdmin();
-  showToast(u.banned?'User banned':'User unbanned',`@${username} ${u.banned?'has been banned.':'can access the site again.'}`);
+
+  const users = load(KEYS.users, []);
+  const u = users.find(x => x.username === username);
+  if (!u || username === 'fynx') return;
+
+  let nextBanned;
+  let nextReason;
+
+  if (u.banned) {
+    if (!confirm(`Unban @${username}?`)) return;
+    nextBanned = false;
+    nextReason = '';
+  } else {
+    const reason = prompt(`Ban @${username}? Reason:`, 'Trolling / spam');
+    if (reason === null) return;
+    nextBanned = true;
+    nextReason = reason.trim() || 'Moderation violation';
+  }
+
+  try {
+    const { error } = await supabaseClient
+      .from('profiles')
+      .update({
+        banned: nextBanned,
+        banned_until: null,
+        ban_reason: nextReason
+      })
+      .eq('username', username);
+
+    if (error) throw error;
+
+    u.banned = nextBanned;
+    u.bannedUntil = null;
+    u.banReason = nextReason;
+    save(KEYS.users, users);
+
+    renderAdmin();
+    showToast(
+      nextBanned ? 'User banned' : 'User unbanned',
+      `@${username} ${nextBanned ? 'has been banned.' : 'can access the site again.'}`
+    );
+  } catch (err) {
+    console.error('Supabase ban update failed:', err);
+    showToast(
+      'Ban update failed',
+      'Could not save the ban change to Supabase.'
+    );
+  }
 }
 
 function renderAdmin() {
@@ -3511,7 +3694,7 @@ function renderAdmin() {
     </tr>`;
   }).join('');
   const adminTxBody=document.getElementById('adminTxBody');
-  if(adminTxBody){ const txs=getTransactions(); adminTxBody.innerHTML=txs.length?txs.map(t=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.item||'')}</td><td>@${escapeHtml(t.buyer||'')}</td><td>@${escapeHtml(t.seller||'')}</td><td>${escapeHtml(t.status||'')}</td><td>${['COMPLETED','CANCELLED'].includes(t.status)?`<button class="btn btn-danger btn-sm" onclick="removeTransactionByAdmin('${escapeHtml(t.id)}')">✕ Remove</button>`:'Active'}</td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">No transactions.</td></tr>'; }
+  if(adminTxBody){ const txs=getTransactions(); adminTxBody.innerHTML=txs.length?txs.map(t=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.item||'')}</td><td>@${escapeHtml(t.buyer||'')}</td><td>@${escapeHtml(t.seller||'')}</td><td>${escapeHtml(t.status||'')}</td><td><button class="btn btn-danger btn-sm" onclick="removeTransactionByAdmin('${escapeHtml(t.id)}')">✕ Remove</button></td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">No transactions.</td></tr>'; }
   refreshAdminAppBadge();
 }
 
