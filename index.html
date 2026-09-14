@@ -1928,37 +1928,12 @@ async function doLogin() {
   const pass = document.getElementById('loginPass').value;
   if (!user || !pass) return showAuthError('Please enter username and password.');
 
-  // Production login: Supabase Auth. Username is mapped to a private internal email.
+  // Testing login: local account only. Supabase Auth/email is intentionally disabled for now.
   try {
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles').select('*').ilike('username', user).limit(1).maybeSingle();
-    if (profileError) throw profileError;
-    if (!profile) return showAuthError('Username not found. Please Sign Up first.');
-
-    const authEmail = profile.auth_email || `${String(profile.username).toLowerCase()}@accounts.gameflipph.local`;
-    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
-      email: authEmail,
-      password: pass
-    });
-    if (authError) {
-      console.error('Supabase Auth login error:', authError);
-      return showAuthError('Wrong username or password.');
-    }
-
-    const byName = {
-      ...profile,
-      username: profile.username,
-      password: pass,
-      displayName: profile.display_name || profile.username,
-      location: profile.location || 'Philippines',
-      joined: profile.joined || getPHT(),
-      role: profile.role || 'user',
-      mmAvailability: profile.mm_availability || 'AVAILABLE',
-      moderationStrikes: Number(profile.moderation_strikes || 0),
-      banned: !!profile.banned,
-      bannedUntil: profile.banned_until || null,
-      banReason: profile.ban_reason || ''
-    };
+    const localUsers = load(KEYS.users, []);
+    const byName = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
+    if (!byName) return showAuthError('Username not found. Please Sign Up first.');
+    if (String(byName.password || '') !== pass) return showAuthError('Wrong username or password.');
 
     if (byName.banned) return showAuthError(`Account banned${byName.banReason ? ': ' + byName.banReason : ''}.`);
     currentUser = byName;
@@ -1990,31 +1965,15 @@ async function doSignup() {
   if (pass !== pass2) return showAuthError('Passwords do not match.');
 
   try {
-    const { data: existing, error: checkError } = await supabaseClient
-      .from('profiles').select('username').ilike('username', user).limit(1);
-    if (!checkError && existing && existing.length) {
+    const localUsers = load(KEYS.users, []);
+    const existing = localUsers.find(u => String(u.username).toLowerCase() === user.toLowerCase());
+    if (existing) {
       return showAuthError('Username already taken. Try another or Login.');
     }
-    // If anonymous SELECT is blocked by RLS, continue with Auth signup.
-    // The profile INSERT below is still protected by the authenticated INSERT policy.
-
-    const authEmail = `${user.toLowerCase()}@accounts.gameflipph.local`;
-    const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-      email: authEmail,
-      password: pass,
-      options: { data: { username: user, display_name: name } }
-    });
-    if (authError) {
-      console.error('Supabase Auth signup error:', authError);
-      return showAuthError(authError.message || 'Could not create account.');
-    }
-    if (!authData.user) return showAuthError('Could not create account.');
-    if (!authData.session) return showAuthError('Account created, but Supabase email confirmation is enabled. Disable email confirmation in Supabase Auth settings, then sign up again.');
-
-    const profileRow = {
-      id: authData.user.id,
+    const localId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    const newUser = {
+      id: localId,
       username: user,
-      auth_email: authEmail,
       display_name: name,
       location: loc,
       joined: getPHT(),
@@ -2023,29 +1982,22 @@ async function doSignup() {
       moderation_strikes: 0,
       banned: false,
       banned_until: null,
-      ban_reason: ''
-    };
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles').insert(profileRow).select('*').single();
-    if (profileError) throw profileError;
-
-    currentUser = {
-      ...profile,
+      ban_reason: '',
       password: pass,
-      displayName: profile.display_name || user,
-      mmAvailability: profile.mm_availability || 'AVAILABLE',
+      displayName: name,
+      mmAvailability: 'AVAILABLE',
       moderationStrikes: 0,
       banned: false
     };
-    const localUsers = load(KEYS.users, []);
-    localUsers.push(currentUser);
+    currentUser = newUser;
+    localUsers.push(newUser);
     save(KEYS.users, localUsers);
     save(KEYS.session, { username: user });
     enterApp();
     showToast('Account created!', `Welcome @${user}`);
   } catch (err) {
     console.error('Signup failed:', err);
-    showAuthError(err?.message || 'Could not create account. Check your Supabase profiles table/RLS.');
+    showAuthError(err?.message || 'Could not create account.');
   }
 }
 
@@ -3214,7 +3166,7 @@ function cancelTransactionByMm() {
   showToast('Cancelled', 'Transaction cancelled. You can Finish & Delete the GC.');
 }
 
-function closeGcByMiddleman() {
+async function closeGcByMiddleman() {
   if (!currentTx || !isAssignedMm(currentTx)) {
     showToast('Access denied', 'Only the assigned Middleman can delete the GC.');
     return;
@@ -3233,6 +3185,7 @@ function closeGcByMiddleman() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
+  await syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -3248,7 +3201,7 @@ function closeGcByMiddleman() {
   showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
 }
 
-function removeFinishedGcForParticipant() {
+async function removeFinishedGcForParticipant() {
   if (!currentTx || !currentUser) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
@@ -3272,6 +3225,7 @@ function removeFinishedGcForParticipant() {
   tx.messages = tx.messages || [];
   tx.messages.push({ type: 'system', text: `GC removed by @${currentUser.username}.`, time: getPHT() });
   saveTransactions(txs);
+  await syncPublicTransactions([tx]);
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   renderGcList();
@@ -3410,7 +3364,7 @@ function toggleAllFinishedTransactions(checked) {
   });
 }
 
-function removeSelectedTransactions() {
+async function removeSelectedTransactions() {
   if (!currentUser) return;
   const selected = [...selectedFinishedTransactions];
   if (!selected.length) return showToast('Nothing selected', 'Select one or more finished transactions first.');
@@ -3424,10 +3378,18 @@ function removeSelectedTransactions() {
   const hidden = load(KEYS.hiddenTransactions, {});
   hidden[currentUser.username] = hidden[currentUser.username] || [];
   valid.forEach(id => {
+    const tx = txs.find(t => String(t.id) === String(id));
+    if (tx) {
+      tx.gcClosed = true;
+      tx.gcClosedAt = getPHT();
+      tx.gcClosedBy = currentUser.username;
+    }
     if (!hidden[currentUser.username].includes(String(id))) hidden[currentUser.username].push(String(id));
     selectedFinishedTransactions.delete(String(id));
   });
   save(KEYS.hiddenTransactions, hidden);
+  await syncPublicTransactions(valid.map(id => txs.find(t => String(t.id) === String(id))).filter(Boolean));
+  save(KEYS.transactions, txs);
   if (currentTx && valid.includes(String(currentTx.id))) {
     currentTx = null;
     localStorage.removeItem(KEYS.uiTx);
