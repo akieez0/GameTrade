@@ -504,6 +504,13 @@
     box-shadow: 0 5px 16px rgba(114,204,239,.30);
     color: #3d6a88 !important;
   }
+  .gc-btn-complete:disabled, .gc-btn-cancel:disabled, .gc-btn-finish:disabled, .gc-btn-rate:disabled,
+  #gcAdminOnlyActions .btn:disabled {
+    opacity: .55 !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
   @keyframes gcQuickIn {
     from { opacity:0; transform: translateY(-6px); }
     to { opacity:1; transform: none; }
@@ -650,6 +657,15 @@
     white-space:nowrap; opacity:0; visibility:hidden; transition:opacity .15s;
   }
   .online-user-bubble:hover::before { opacity:1; visibility:visible; }
+  .dm-unread-badge {
+    position:absolute; top:-4px; left:-4px;
+    background:var(--danger); color:#fff;
+    font-size:.6rem; font-weight:800; line-height:1.3;
+    min-width:16px; height:16px; padding:0 4px;
+    border-radius:9px; border:2px solid var(--bg2);
+    display:flex; align-items:center; justify-content:center;
+    z-index:2;
+  }
   @media (max-width:900px) {
     .online-users-dock { right:8px; top:72px; gap:6px; }
     .online-users-label { font-size:.55rem; padding:3px 5px; }
@@ -1537,6 +1553,7 @@ thead th{
         JD
         <span class="notif-dot" id="notifDot" style="display:none"></span>
       </div>
+      <span id="navDmBadge" title="Unread messages" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;font-size:0.62rem;font-weight:700;padding:2px 5px;border-radius:10px;min-width:16px;text-align:center;line-height:1.3;box-shadow:0 2px 6px rgba(0,0,0,.25)">0</span>
       <div class="user-menu" id="userMenu">
         <div class="user-menu-item" onclick="showPage('profile');closeUserMenu()">👤 My Profile</div>
         <div class="user-menu-item" onclick="showPage('my-listings');closeUserMenu()">📦 My Listings</div>
@@ -2173,6 +2190,7 @@ let currentUser = null;
 let currentListing = null;
 let currentTx = null;
 let currentDmUser = null;
+let unreadDmCounts = {};
 let mmStatus = 'AVAILABLE';
 let feeConfig = { type: 'fixed', value: 20 };
 let selectedPayMethod = 'GCash';
@@ -2565,8 +2583,55 @@ function renderOnlineUsers() {
     const name = String(u.display_name || u.username || 'User');
     const initials = name.trim().split(/\s+/).slice(0,2).map(x => x[0]).join('').toUpperCase() || 'U';
     const username = String(u.username || name);
-    return `<div class="online-user-bubble" title="${escapeHtml(name)} • Click to chat" onclick="openDirectMessage(decodeURIComponent('${encodeURIComponent(username)}'))">${escapeHtml(initials)}</div>`;
+    const unread = unreadDmCounts[username.toLowerCase()] || 0;
+    const badge = unread > 0 ? `<span class="dm-unread-badge">${unread > 9 ? '9+' : unread}</span>` : '';
+    return `<div class="online-user-bubble" style="position:relative" title="${escapeHtml(name)} • Click to chat" onclick="openDirectMessage(decodeURIComponent('${encodeURIComponent(username)}'))">${escapeHtml(initials)}${badge}</div>`;
   }).join('');
+}
+
+async function refreshUnreadDmCounts() {
+  if (!currentUser || typeof supabaseClient === 'undefined' || !supabaseClient) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from('direct_messages')
+      .select('sender_username')
+      .eq('receiver_username', currentUser.username)
+      .eq('is_read', false);
+    if (error) throw error;
+    const counts = {};
+    (data || []).forEach(r => {
+      const k = String(r.sender_username || '').toLowerCase();
+      if (!k) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    unreadDmCounts = counts;
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const badge = document.getElementById('navDmBadge');
+    if (badge) {
+      badge.textContent = total > 99 ? '99+' : String(total);
+      badge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
+    renderOnlineUsers();
+  } catch (err) {
+    console.warn('Unread DM count check failed:', err);
+  }
+}
+
+async function markDmThreadRead(otherUsername) {
+  if (!currentUser || !otherUsername) return;
+  try {
+    const { error } = await supabaseClient
+      .from('direct_messages')
+      .update({ is_read: true })
+      .eq('sender_username', otherUsername)
+      .eq('receiver_username', currentUser.username)
+      .eq('is_read', false);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('Mark DM thread as read failed:', err);
+  } finally {
+    refreshUnreadDmCounts();
+  }
 }
 
 async function loadDirectMessages() {
@@ -2585,6 +2650,8 @@ async function loadDirectMessages() {
     const rows = [...(sent.data || []), ...(received.data || [])]
       .sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     renderDirectMessages(rows);
+    // The user is actively viewing this thread — mark incoming messages as read.
+    markDmThreadRead(other);
   } catch (err) {
     console.error('Direct messages load failed:', err);
   }
@@ -2919,6 +2986,7 @@ function enterApp() {
   loadPublicListings();
   syncPublicPresence();
   loadPublicTransactions(false);
+  refreshUnreadDmCounts();
   if (!window.__presenceTimer) {
     window.__presenceTimer = setInterval(() => {
       if (currentUser) {
@@ -2932,6 +3000,7 @@ function enterApp() {
         refreshMmNotifBadge();
         refreshAdminAppBadge();
         refreshModerationBadge();
+        refreshUnreadDmCounts();
         if (typeof checkPendingMmAppNotifications === 'function') checkPendingMmAppNotifications();
       }
     }, 5000);
@@ -3577,8 +3646,8 @@ async function renderNavUserDropdown(query, openFirst) {
     if (typeof supabaseClient !== 'undefined' && supabaseClient) {
       const navOrFilter = `username.ilike.%${q}%,display_name.ilike.%${q}%`;
       const [{ data: profiles }, { data: presence }] = await Promise.all([
-        supabaseClient.from('profiles').select('username,display_name,role,banned,ban_reason,avatar_url').or(navOrFilter).limit(12),
-        supabaseClient.from('public_presence').select('*').or(navOrFilter).limit(12)
+        supabaseClient.from('profiles').select('username,display_name,role,banned,ban_reason,avatar_url').or(navOrFilter).limit(1000),
+        supabaseClient.from('public_presence').select('*').or(navOrFilter).limit(1000)
       ]);
       const presenceMap = {};
       (presence || []).forEach(p => { presenceMap[String(p.username || '').toLowerCase()] = p; });
@@ -3830,6 +3899,22 @@ function clearListingImage() {
   if (img) img.src = '';
 }
 
+async function checkListingImageModeration(imageDataUrl, game, title) {
+  if (!imageDataUrl || typeof supabaseClient === 'undefined' || !supabaseClient) {
+    return { flagged: false, reason: '' };
+  }
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('moderate-image', {
+      body: { image: imageDataUrl, game, title }
+    });
+    if (error) throw error;
+    return { flagged: !!(data && data.flagged), reason: (data && data.reason) || '' };
+  } catch (err) {
+    console.warn('Image moderation check failed (post will publish normally):', err);
+    return { flagged: false, reason: '' };
+  }
+}
+
 async function createListing() {
   if (!currentUser) return;
   if (currentUser.banned) return showToast('Posting blocked', 'Your account is currently banned.');
@@ -3847,13 +3932,22 @@ async function createListing() {
     return;
   }
 
+  const btnEarly = document.querySelector('#newListingModal .modal-footer .btn-primary');
+  if (btnEarly) { btnEarly.disabled = true; btnEarly.textContent = 'Checking photo…'; }
+  const imageCheck = await checkListingImageModeration(pendingListingImage, game, title);
+  const flagged = spamCheck.flagged || imageCheck.flagged;
+  const reasonParts = [];
+  if (spamCheck.reason) reasonParts.push(spamCheck.reason);
+  if (imageCheck.flagged) reasonParts.push('Automatic moderation (image): ' + (imageCheck.reason || 'unrelated/inappropriate photo'));
+  const flagReason = reasonParts.join(' | ');
+
   const newId = Date.now();
   const item = {
     id: newId, game, server, title, price,
     seller: currentUser.username,
     emoji: GAME_EMOJIS[game] || '🎮',
     desc, image: pendingListingImage || null,
-    active: !spamCheck.flagged, sold: false, created: new Date(newId).toISOString()
+    active: !flagged, sold: false, created: new Date(newId).toISOString()
   };
 
   const btn = document.querySelector('#newListingModal .modal-footer .btn-primary');
@@ -3863,20 +3957,20 @@ async function createListing() {
     const listings = load(KEYS.listings, []);
     listings.unshift(item);
     save(KEYS.listings, listings);
-    if (spamCheck.flagged) addModerationItem(item, spamCheck.reason, 'auto');
+    if (flagged) await addModerationItem(item, flagReason, 'auto');
     await loadPublicListings();
-    if (spamCheck.flagged) {
-      showToast('Post held for review', 'Hidden for automatic moderation (spam / inappropriate). A Middleman or Admin will review it.');
+    if (flagged) {
+      showToast('Post held for review', 'Hidden for automatic moderation (spam / inappropriate / unrelated photo). A Middleman or Admin will review it.');
     } else {
       showToast('Listing Published!', `${title} • ₱${price.toLocaleString()} is now PUBLIC on the Marketplace.`);
     }
   } catch (err) {
     console.error('Public listing failed:', err);
-    if (spamCheck.flagged) addModerationItem(item, spamCheck.reason, 'auto');
+    if (flagged) await addModerationItem(item, flagReason, 'auto');
     const listings = load(KEYS.listings, []);
     listings.unshift(item);
     save(KEYS.listings, listings);
-    showToast(spamCheck.flagged ? 'Post held for review' : 'Saved Locally', spamCheck.flagged ? 'Listing hidden pending moderation.' : 'Supabase publish failed. Check your Supabase tables/settings.');
+    showToast(flagged ? 'Post held for review' : 'Saved Locally', flagged ? 'Listing hidden pending moderation.' : 'Supabase publish failed. Check your Supabase tables/settings.');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Publish Listing'; }
   }
@@ -4829,17 +4923,26 @@ async function closeGcByMiddleman() {
     showToast('Not yet', 'Complete or Cancel the transaction first before deleting the GC.');
     return;
   }
-  if (!confirm('Finish & permanently remove this GC from all participants\' lists?')) return;
+  if (!confirm('Finish & permanently delete this GC for all participants? This cannot be undone.')) return;
+
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
-  tx.gcClosed = true;
-  tx.gcClosedAt = getPHT();
-  tx.gcClosedBy = currentUser.username;
-  tx.messages = tx.messages || [];
-  tx.messages.push({ type: 'system', text: `GC closed and removed by Middleman @${currentUser.username}.`, time: getPHT() });
-  saveTransactions(txs);
-  await syncPublicTransactions([tx]);
+  const id = tx.id;
+
+  const btn = document.getElementById('btnCloseGc') || document.getElementById('btnQuickCloseGc');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+
+  try {
+    await deletePublicTransaction(id);
+  } catch (err) {
+    console.error('Middleman GC delete failed:', err);
+    showToast('Error', 'Could not delete the transaction. Please try again.');
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Finish & Delete GC'; }
+    return;
+  }
+
+  save(KEYS.transactions, getTransactions().filter(t => String(t.id) !== String(id)));
   currentTx = null;
   localStorage.removeItem(KEYS.uiTx);
   localStorage.setItem(KEYS.uiPage, 'gc');
@@ -4848,11 +4951,12 @@ async function closeGcByMiddleman() {
   document.getElementById('gcStatusBadge').textContent = '';
   document.getElementById('gcInputArea').style.display = 'none';
   document.getElementById('gcInfoPanel').style.display = 'none';
-  document.getElementById('gcMessages').innerHTML = '<div class="empty"><div class="icon">💬</div>GC closed by Middleman</div>';
+  document.getElementById('gcMessages').innerHTML = '<div class="empty"><div class="icon">🗑</div>GC deleted by Middleman</div>';
   renderGcList();
   renderTransactions();
   renderMmActive();
-  showToast('GC deleted', 'Private GC removed. The Buyer / Seller / MM can no longer see it.');
+  if (btn) { btn.disabled = false; btn.textContent = '🗑 Finish & Delete GC'; }
+  showToast('GC deleted', `Transaction #${id} was permanently deleted by Middleman @${currentUser.username}.`);
 }
 
 async function removeFinishedGcForParticipant() {
@@ -4897,13 +5001,23 @@ async function removeFinishedGcForParticipant() {
 async function closeGcByAdmin() {
   if (!currentTx || !isAdmin()) return showToast('Access denied','Admin only.');
   if (!['COMPLETED','CANCELLED'].includes(currentTx.status)) return showToast('Not yet','The transaction must be completed or cancelled first.');
-  if (!confirm('Remove this finished GC?')) return;
-  const id=currentTx.id;
-  try { await deletePublicTransaction(id); } catch(e) { console.error(e); showToast('Error','Could not remove the public transaction.'); return; }
+  if (!confirm('Permanently delete this GC for all participants? This cannot be undone.')) return;
+  const id = currentTx.id;
+  const btn = document.querySelector('#gcAdminOnlyActions .btn-danger');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+  try {
+    await deletePublicTransaction(id);
+  } catch(e) {
+    console.error(e);
+    showToast('Error','Could not delete the transaction. Please try again.');
+    if (btn) { btn.disabled = false; btn.textContent = '✕ Remove Finished GC'; }
+    return;
+  }
   save(KEYS.transactions,getTransactions().filter(t=>String(t.id)!==String(id)));
   currentTx=null; localStorage.removeItem(KEYS.uiTx);
   closeModal('gcModal'); renderTransactions(); renderGcList(); renderMmActive(); renderAdmin();
-  showToast('GC removed',`Transaction #${id} was removed by Admin.`);
+  if (btn) { btn.disabled = false; btn.textContent = '✕ Remove Finished GC'; }
+  showToast('GC deleted',`Transaction #${id} was permanently deleted by Admin.`);
 }
 
 // ========== PAYMENT ==========
@@ -5980,8 +6094,8 @@ async function searchUsers(query) {
   try {
     const orFilter = `username.ilike.%${q}%,display_name.ilike.%${q}%`;
     const [{ data: profiles, error: profileError }, { data: presence, error: presenceError }] = await Promise.all([
-      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').or(orFilter).limit(20),
-      supabaseClient.from('public_presence').select('*').or(orFilter).limit(20)
+      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').or(orFilter).limit(1000),
+      supabaseClient.from('public_presence').select('*').or(orFilter).limit(1000)
     ]);
     if (profileError && presenceError) throw profileError || presenceError;
 
