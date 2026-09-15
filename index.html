@@ -1194,6 +1194,33 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 .timeline-post-title { font-weight: 800; color: #2f6f8f; margin-bottom: 4px; }
 .timeline-post-meta { font-size: 0.8rem; color: var(--text2); }
 .timeline-post-price { color: #3baad6; font-weight: 800; margin-top: 6px; }
+.like-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff0f5; border: 1px solid #ffc9dd; color: #d97094;
+  border-radius: 999px; padding: 7px 14px; font-size: 0.85rem; font-weight: 700;
+  cursor: pointer; transition: transform .16s ease, box-shadow .16s ease;
+}
+.like-pill:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(217,112,148,.18); }
+.like-pill.liked { background: #ffe0eb; border-color: #ffb0cc; }
+.comment-count-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--text2); font-size: 0.82rem; font-weight: 600;
+}
+.comment-bubble {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: rgba(255,255,255,.96); border: 1px solid #e8f4fc; border-radius: 14px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.comment-avatar {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #79ccef, #a78bfa);
+  color: #fff; font-weight: 800; font-size: 0.75rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.comment-body { min-width: 0; flex: 1; }
+.comment-author { font-weight: 800; font-size: 0.85rem; color: #2f6f8f; }
+.comment-username { font-weight: 500; color: var(--text2); font-size: 0.74rem; margin-left: 4px; }
+.comment-text { font-size: 0.87rem; margin-top: 2px; white-space: pre-wrap; color: var(--text); }
 .seller-link {
   color: #3baad6; font-weight: 700; cursor: pointer; text-decoration: none;
 }
@@ -1889,10 +1916,26 @@ thead th{
         </div>
       </div>
       <div id="mmRoleInfo" style="margin-bottom:20px"></div>
+
+      <h3 style="margin-bottom:12px">💬 About Me</h3>
+      <div class="card" style="padding:18px;margin-bottom:24px">
+        <div class="form-group" style="margin-bottom:10px">
+          <textarea class="form-control" id="profBioInput" rows="3" maxlength="300" placeholder="Tell buyers/sellers a bit about yourself (games you play, availability, etc.)"></textarea>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:0.75rem;color:var(--text2)" id="profBioCount">0/300</span>
+          <button class="btn btn-primary btn-sm" onclick="saveProfileBio()">Save About Me</button>
+        </div>
+      </div>
+
       <h3 style="margin-bottom:12px">Recent Reviews</h3>
-      <div class="card" style="padding:18px" id="profReviewsBox">
+      <div class="card" style="padding:18px;margin-bottom:24px" id="profReviewsBox">
         <div style="color:var(--text2);font-size:0.9rem">No reviews yet. Complete transactions to receive reviews.</div>
       </div>
+
+      <h3 style="margin-bottom:12px">🛒 My Posts</h3>
+      <div class="grid grid-3" id="profilePostsGrid" style="margin-bottom:24px"></div>
+
       <div style="margin-top:28px">
         <button class="btn btn-outline" onclick="logout()" style="border-color:var(--danger);color:#ff6b6b">🚪 Logout</button>
       </div>
@@ -3043,6 +3086,7 @@ async function doSignup() {
       banned: remoteProfile ? !!remoteProfile.banned : false,
       banned_until: null,
       ban_reason: remoteProfile ? (remoteProfile.ban_reason || '') : '',
+      bio: '',
       password: pass,
       displayName: remoteProfile ? (remoteProfile.display_name || name) : name,
       mmAvailability: 'AVAILABLE',
@@ -3292,6 +3336,39 @@ async function syncUserProfileToSupabase(user) {
   }
 }
 
+// Kept separate from syncUserProfileToSupabase on purpose: needs a `bio`
+// column (text) on the `profiles` table. If that column isn't there yet,
+// this fails on its own without breaking display_name/ban/role syncing.
+async function syncProfileBioToSupabase(username, bio) {
+  if (!supabaseClient || !username) return false;
+  try {
+    const { error } = await supabaseClient
+      .from('profiles')
+      .update({ bio: bio || '' })
+      .eq('username', username);
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('Bio sync failed (add a bio text column to the profiles table?):', err);
+    return false;
+  }
+}
+
+async function fetchProfileBio(username) {
+  if (!supabaseClient || !username) return null;
+  try {
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('bio')
+      .eq('username', username)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? (data.bio || '') : '';
+  } catch (err) {
+    return null; // column/table not ready — caller falls back to local
+  }
+}
+
 async function fetchProfileAvatar(username) {
   const name = String(username || '').trim();
   if (!name) return '';
@@ -3411,6 +3488,88 @@ function updateNavUser() {
       }
     }
   }
+  const bioInput = document.getElementById('profBioInput');
+  if (bioInput && document.activeElement !== bioInput) {
+    bioInput.value = currentUser.bio || '';
+    updateProfBioCount();
+  }
+}
+
+function updateProfBioCount() {
+  const bioInput = document.getElementById('profBioInput');
+  const counter = document.getElementById('profBioCount');
+  if (bioInput && counter) counter.textContent = `${bioInput.value.length}/300`;
+}
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'profBioInput') updateProfBioCount(); });
+
+async function saveProfileBio() {
+  if (!currentUser) return;
+  const bioInput = document.getElementById('profBioInput');
+  const val = (bioInput?.value || '').trim().slice(0, 300);
+  currentUser.bio = val;
+
+  const users = load(KEYS.users, []);
+  const idx = users.findIndex(u => String(u.username).toLowerCase() === String(currentUser.username).toLowerCase());
+  if (idx >= 0) { users[idx].bio = val; save(KEYS.users, users); }
+
+  const synced = await syncProfileBioToSupabase(currentUser.username, val);
+  showToast('Saved', synced
+    ? 'Your About Me was updated.'
+    : 'Saved on this device. (Add a bio text column to the Supabase profiles table to sync it everywhere.)');
+}
+
+// Batched so a grid of posts costs 2 queries total, not 2-per-post.
+async function fetchEngagementCounts(postIds) {
+  const ids = [...new Set((postIds || []).map(String))];
+  const likeCounts = {}, commentCounts = {};
+  if (!supabaseClient || !ids.length) return { likeCounts, commentCounts };
+  try {
+    const [likesRes, commentsRes] = await Promise.all([
+      supabaseClient.from('post_likes').select('post_id').in('post_id', ids),
+      supabaseClient.from('post_comments').select('post_id').in('post_id', ids)
+    ]);
+    (likesRes.data || []).forEach(r => { likeCounts[r.post_id] = (likeCounts[r.post_id] || 0) + 1; });
+    (commentsRes.data || []).forEach(r => { commentCounts[r.post_id] = (commentCounts[r.post_id] || 0) + 1; });
+  } catch (err) {
+    console.warn('Engagement counts fetch failed (create post_likes/post_comments tables?):', err);
+  }
+  return { likeCounts, commentCounts };
+}
+
+// "My Posts" grid on the Profile page — same posts as My Listings, shown as
+// a timeline-style card grid so the user can see what they've posted at a
+// glance, right alongside their bio and reviews.
+async function renderProfilePosts() {
+  const grid = document.getElementById('profilePostsGrid');
+  if (!grid || !currentUser) return;
+  const posts = getListings()
+    .filter(l => String(l.seller || '').toLowerCase() === String(currentUser.username).toLowerCase())
+    .filter(p => p.sold || p.active !== false)
+    .sort((a, b) => {
+      const ad = Date.parse(a.created || '') || Number(a.id) || 0;
+      const bd = Date.parse(b.created || '') || Number(b.id) || 0;
+      return bd - ad;
+    });
+  if (!posts.length) {
+    grid.innerHTML = `<div class="card" style="padding:24px;text-align:center;color:var(--text2);grid-column:1/-1">No posts yet. Go to <b>My Listings</b> to create one — it'll show up here too.</div>`;
+    return;
+  }
+  const { likeCounts, commentCounts } = await fetchEngagementCounts(posts.map(p => p.id));
+  grid.innerHTML = posts.map(p => {
+    const status = (p.sold || p.active === false)
+      ? '<span class="status st-cancelled">SOLD</span>'
+      : '<span class="status st-completed">AVAILABLE</span>';
+    const thumb = p.image
+      ? `<img src="${String(p.image).replace(/"/g, '&quot;')}" alt="" style="width:100%;height:100px;border-radius:8px;object-fit:cover;margin-bottom:10px">`
+      : `<div style="width:100%;height:100px;border-radius:8px;background:#eef9ff;display:flex;align-items:center;justify-content:center;font-size:2rem;margin-bottom:10px">${p.emoji || '🎮'}</div>`;
+    return `<div class="profile-post-card" onclick="openListing(${p.id})">
+      ${thumb}
+      <div style="font-weight:800;color:#2f6f8f;margin-bottom:4px">${escapeHtml(p.title)}</div>
+      <div style="font-size:0.8rem;color:var(--text2);margin-bottom:6px">${escapeHtml(p.game)} · ${status}</div>
+      <div style="color:#3baad6;font-weight:800">₱${Number(p.price).toLocaleString()}</div>
+      <div style="margin-top:8px;font-size:0.76rem;color:var(--text2)">🤍 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
+    </div>`;
+  }).join('');
 }
 
 function toggleUserMenu() {
@@ -3463,11 +3622,16 @@ function showPage(page) {
   if (page === 'gc') renderGcList();
   if (page === 'mm-requests') renderMmRequests();
   if (page === 'mm-dashboard') renderMmActive();
-  if (page === 'admin') renderAdmin();
+  if (page === 'admin') {
+    renderAdmin();
+    // Local render first (instant), then pull in appeals/reports sent from
+    // other devices and re-render once they arrive.
+    loadSupportReportsFromSupabase().then(ok => { if (ok) renderAdmin(); });
+  }
   if (page === 'moderation') renderModeration();
   if (page === 'support') renderHelpFaqs();
   if (page === 'marketplace') renderListings();
-  if (page === 'profile') { updateNavUser(); refreshOwnRatingsFromSupabase(); }
+  if (page === 'profile') { updateNavUser(); refreshOwnRatingsFromSupabase(); renderProfilePosts(); }
 }
 
 // ========== LISTINGS ==========
@@ -3983,6 +4147,129 @@ function renderListings() {
   }).join('');
 }
 
+// ========== POST LIKES & COMMENTS (Supabase, real-time) ==========
+// Needs two Supabase tables (see chat for the SQL to create them):
+//   post_likes    — id text PK, post_id text, username text, created_at timestamptz  (unique per post_id+username)
+//   post_comments — id text PK, post_id text, username text, display_name text, comment text, created_at timestamptz
+// Everything below fails quietly (console warning) if those tables aren't
+// created yet — Like/Comment just won't do anything until then.
+let __postEngagementChannel = null;
+
+async function loadPostLikes(postId) {
+  const likeBtn = document.getElementById('btnLikePost');
+  if (!supabaseClient || !likeBtn) return;
+  try {
+    const { data, error } = await supabaseClient.from('post_likes').select('username').eq('post_id', String(postId));
+    if (error) throw error;
+    const rows = data || [];
+    const liked = currentUser && rows.some(r => String(r.username).toLowerCase() === String(currentUser.username).toLowerCase());
+    likeBtn.classList.toggle('liked', !!liked);
+    likeBtn.innerHTML = `${liked ? '❤️' : '🤍'} <span id="likeCount">${rows.length}</span>`;
+  } catch (err) {
+    console.warn('Load likes failed (create the post_likes table?):', err);
+  }
+}
+
+async function toggleLikePost(postId) {
+  if (!currentUser) return showToast('Login required', 'Please log in first.');
+  if (!supabaseClient) return;
+  try {
+    const { data } = await supabaseClient
+      .from('post_likes').select('id')
+      .eq('post_id', String(postId)).eq('username', currentUser.username).maybeSingle();
+    if (data) {
+      await supabaseClient.from('post_likes').delete().eq('id', data.id);
+    } else {
+      await supabaseClient.from('post_likes').insert({
+        id: 'LIKE-' + Date.now() + '-' + currentUser.username,
+        post_id: String(postId),
+        username: currentUser.username,
+        created_at: new Date().toISOString()
+      });
+    }
+    await loadPostLikes(postId);
+  } catch (err) {
+    console.warn('Toggle like failed (create the post_likes table?):', err);
+    showToast('Unable to like', 'This needs the post_likes table in Supabase.');
+  }
+}
+
+async function loadPostComments(postId) {
+  const list = document.getElementById('postCommentsList');
+  const countEl = document.getElementById('commentCount');
+  if (!supabaseClient || !list) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from('post_comments').select('*')
+      .eq('post_id', String(postId)).order('created_at', { ascending: true });
+    if (error) throw error;
+    const comments = data || [];
+    if (countEl) countEl.textContent = `💬 ${comments.length} comment${comments.length === 1 ? '' : 's'}`;
+    list.innerHTML = comments.length ? comments.map(c => {
+      const name = c.display_name || c.username;
+      const initials = String(name).trim().split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase() || 'U';
+      return `
+      <div class="comment-bubble">
+        <div class="comment-avatar">${escapeHtml(initials)}</div>
+        <div class="comment-body">
+          <div><span class="comment-author">${escapeHtml(name)}</span><span class="comment-username">@${escapeHtml(c.username)}</span></div>
+          <div class="comment-text">${escapeHtml(c.comment)}</div>
+        </div>
+      </div>`;
+    }).join('') : `<div style="color:var(--text2);font-size:0.85rem;padding:8px 0">No comments yet. Be the first! 🎀</div>`;
+  } catch (err) {
+    console.warn('Load comments failed (create the post_comments table?):', err);
+    list.innerHTML = `<div style="color:var(--text2);font-size:0.85rem;padding:8px 0">Comments unavailable right now.</div>`;
+  }
+}
+
+async function submitPostComment() {
+  if (!currentUser) return showToast('Login required', 'Please log in first.');
+  if (!currentListing) return;
+  const input = document.getElementById('postCommentInput');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  try {
+    const { error } = await supabaseClient.from('post_comments').insert({
+      id: 'CMT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      post_id: String(currentListing.id),
+      username: currentUser.username,
+      display_name: currentUser.displayName || currentUser.username,
+      comment: text,
+      created_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    if (input) input.value = '';
+    // Realtime will also refresh this, but update immediately so the
+    // person who just commented sees it without waiting on the socket.
+    await loadPostComments(currentListing.id);
+  } catch (err) {
+    console.warn('Submit comment failed (create the post_comments table?):', err);
+    showToast('Unable to comment', 'This needs the post_comments table in Supabase.');
+  }
+}
+
+function startPostEngagementRealtime(postId) {
+  if (!supabaseClient) return;
+  stopPostEngagementRealtime();
+  try {
+    __postEngagementChannel = supabaseClient
+      .channel('post-engagement-' + postId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments', filter: `post_id=eq.${postId}` }, () => loadPostComments(postId))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes', filter: `post_id=eq.${postId}` }, () => loadPostLikes(postId))
+      .subscribe((status) => console.log('Post engagement realtime:', status));
+  } catch (err) {
+    console.warn('Post engagement realtime setup failed:', err);
+  }
+}
+
+function stopPostEngagementRealtime() {
+  if (__postEngagementChannel && supabaseClient) {
+    try { supabaseClient.removeChannel(__postEngagementChannel); } catch (e) {}
+  }
+  __postEngagementChannel = null;
+}
+
 async function openListing(id) {
   const list = getListings();
   currentListing = list.find(l => String(l.id) === String(id));
@@ -4022,6 +4309,17 @@ async function openListing(id) {
     ${currentListing.desc ? `<div class="info-row"><div class="info-label">Description</div><div class="info-value">${escapeHtml(currentListing.desc)}</div></div>` : ''}
     <div class="divider"></div>
     <p style="color:var(--text2);font-size:0.9rem">Use the trusted Philippines Middleman system for safe trading. A private GC will be created automatically.</p>
+    <div class="divider"></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+      <button type="button" class="like-pill" id="btnLikePost" onclick="toggleLikePost('${currentListing.id}')">🤍 <span id="likeCount">0</span></button>
+      <span class="comment-count-pill" id="commentCount">💬 0 comments</span>
+    </div>
+    <h4 style="margin-bottom:10px">💬 Comments</h4>
+    <div id="postCommentsList" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" class="form-control" id="postCommentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter'){event.preventDefault();submitPostComment();}">
+      <button class="btn btn-primary btn-sm" onclick="submitPostComment()">Send</button>
+    </div>
   `;
   const btn = document.getElementById('btnUseMiddleman');
   if (currentListing.seller === currentUser.username || currentListing.sold || currentListing.active === false) {
@@ -4030,6 +4328,9 @@ async function openListing(id) {
     btn.style.display = 'inline-flex';
   }
   openModal('listingModal');
+  loadPostLikes(currentListing.id);
+  loadPostComments(currentListing.id);
+  startPostEngagementRealtime(currentListing.id);
 }
 
 function previewListingImage(input) {
@@ -6007,6 +6308,7 @@ function renderAdmin() {
 function renderAll() {
   renderListings();
   renderMyListings();
+  if (typeof renderProfilePosts === 'function') renderProfilePosts();
   renderTransactions();
   renderGcList();
   renderMmRequests();
@@ -6048,6 +6350,7 @@ function openModal(id) {
 function closeModal(id) {
   document.getElementById(id).classList.remove('show');
   if (id === 'newListingModal') clearListingImage();
+  if (id === 'listingModal') stopPostEngagementRealtime();
 }
 
 function showToast(title, body) {
@@ -6266,7 +6569,76 @@ function toggleHelpFaq(i) {
   el.classList.toggle('open');
 }
 
-function submitSupportReport() {
+// ========== SUPPORT APPEALS / REPORTS (Supabase sync) ==========
+// Local storage keeps submission instant and working offline. Supabase makes
+// the appeal actually reach the Admin from ANY device, not just the phone/
+// browser that sent it. Needs a `support_reports` table in Supabase — columns:
+// id (text, PK), username (text), contact (text), category (text),
+// tx_id (text), description (text), date (text), status (text), source (text).
+// If that table doesn't exist yet, the insert/load below just fail silently
+// (logged as a console warning) and the app keeps working with local-only
+// storage on this device, same as it did before.
+async function syncSupportReportToSupabase(report) {
+  if (!supabaseClient) return false;
+  try {
+    const { error } = await supabaseClient.from('support_reports').upsert({
+      id: report.id,
+      username: report.username || '',
+      contact: report.contact || '',
+      category: report.category || 'Other',
+      tx_id: report.txId || '',
+      description: report.description || '',
+      date: report.date || getPHT(),
+      status: report.status || 'open',
+      source: report.source || 'app'
+    }, { onConflict: 'id' });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('Support report Supabase sync failed (create the support_reports table?):', err);
+    return false;
+  }
+}
+
+async function loadSupportReportsFromSupabase() {
+  if (!supabaseClient) return false;
+  try {
+    const { data, error } = await supabaseClient
+      .from('support_reports')
+      .select('*')
+      .order('date', { ascending: false });
+    if (error) throw error;
+    const remote = (data || []).map(r => ({
+      id: r.id,
+      username: r.username || '',
+      contact: r.contact || '',
+      category: r.category || 'Other',
+      txId: r.tx_id || '',
+      description: r.description || '',
+      date: r.date || '',
+      status: r.status || 'open',
+      source: r.source || 'app'
+    }));
+    // Merge with local so anything sent while offline isn't lost, but let
+    // Supabase (shared across every device) win per-id so Admin sees the
+    // latest status no matter which device resolved it.
+    const local = load(KEYS.supportReports, []);
+    const byId = new Map(local.map(r => [String(r.id), r]));
+    remote.forEach(r => byId.set(String(r.id), r));
+    const merged = Array.from(byId.values()).sort((a, b) => {
+      const ad = Date.parse(a.date || '') || 0;
+      const bd = Date.parse(b.date || '') || 0;
+      return bd - ad;
+    });
+    save(KEYS.supportReports, merged.slice(0, 200));
+    return true;
+  } catch (err) {
+    console.warn('Support reports Supabase load failed (create the support_reports table?):', err);
+    return false;
+  }
+}
+
+async function submitSupportReport() {
   if (!currentUser) return showToast('Login required', 'Please log in first.');
   const category = document.getElementById('reportCategory')?.value || 'Other';
   const txId = (document.getElementById('reportTxId')?.value || '').trim();
@@ -6275,25 +6647,30 @@ function submitSupportReport() {
     showToast('Incomplete', 'Please describe the problem (at least a short sentence).');
     return;
   }
-  const reports = load(KEYS.supportReports, []);
-  reports.unshift({
+  const report = {
     id: 'RPT-' + Date.now(),
     username: currentUser.username,
     category,
     txId,
     description: desc,
     date: getPHT(),
-    status: 'open'
-  });
+    status: 'open',
+    source: 'app'
+  };
+  const reports = load(KEYS.supportReports, []);
+  reports.unshift(report);
   save(KEYS.supportReports, reports.slice(0, 100));
   closeModal('reportModal');
   if (document.getElementById('reportDesc')) document.getElementById('reportDesc').value = '';
   if (document.getElementById('reportTxId')) document.getElementById('reportTxId').value = '';
-  showToast('Report submitted', `${category} report received. Support aims to reply within 2 hours (PHT).`);
+  const synced = await syncSupportReportToSupabase(report);
+  showToast('Report submitted', synced
+    ? `${category} report received. Support aims to reply within 2 hours (PHT).`
+    : `${category} report saved on this device. Support aims to reply within 2 hours (PHT).`);
 }
 
 // Works pre-login too (locked out / can't sign in / banned appeals), unlike submitSupportReport().
-function submitAuthSupportRequest() {
+async function submitAuthSupportRequest() {
   const username = (document.getElementById('authSupportUser')?.value || '').trim();
   const contact = (document.getElementById('authSupportContact')?.value || '').trim();
   const category = document.getElementById('authSupportCategory')?.value || 'Other';
@@ -6308,8 +6685,7 @@ function submitAuthSupportRequest() {
     return;
   }
 
-  const reports = load(KEYS.supportReports, []);
-  reports.unshift({
+  const report = {
     id: 'APL-' + Date.now(),
     username,
     contact,
@@ -6318,7 +6694,9 @@ function submitAuthSupportRequest() {
     date: getPHT(),
     status: 'open',
     source: 'login_page'
-  });
+  };
+  const reports = load(KEYS.supportReports, []);
+  reports.unshift(report);
   save(KEYS.supportReports, reports.slice(0, 100));
 
   ['authSupportUser', 'authSupportContact', 'authSupportMsg'].forEach(id => {
@@ -6329,10 +6707,16 @@ function submitAuthSupportRequest() {
   if (catEl) catEl.value = "Can't Log In";
 
   closeModal('authSupportModal');
-  showToast('Appeal sent', `We received your ${category.toLowerCase()} appeal. Support aims to reply within 2 hours (PHT).`);
+  // Send this one to Supabase BEFORE the toast confirms — this is the appeal
+  // sent by locked-out/banned users, so it needs to reach Admin even if
+  // Admin is checking from a completely different device than this one.
+  const synced = await syncSupportReportToSupabase(report);
+  showToast('Appeal sent', synced
+    ? `We received your ${category.toLowerCase()} appeal. Support aims to reply within 2 hours (PHT).`
+    : `Appeal saved. Support aims to reply within 2 hours (PHT).`);
 }
 
-function resolveSupportAppeal(id) {
+async function resolveSupportAppeal(id) {
   if (!isAdmin()) return;
   const reports = load(KEYS.supportReports, []);
   const r = reports.find(x => x.id === id);
@@ -6341,6 +6725,7 @@ function resolveSupportAppeal(id) {
   save(KEYS.supportReports, reports);
   renderAdmin();
   showToast('Marked resolved', `Appeal ${id} closed.`);
+  await syncSupportReportToSupabase(r);
 }
 
 
@@ -6554,12 +6939,16 @@ async function openUserProfile(username) {
   const roleLabel = role === 'admin' ? 'Admin' : role === 'middleman' ? 'Middleman' : 'User';
   const isMe = currentUser && String(currentUser.username).toLowerCase() === uname.toLowerCase();
 
+  const remoteBio = await fetchProfileBio(uname);
+  const bio = (remoteBio !== null ? remoteBio : (localUser.bio || '')) || '';
+
   let avatarUrl = row.avatar_url || localUser.profilePic || '';
   if (banInfo.banned) avatarUrl = '';
   const avatarHtml = avatarUrl
     ? `<div class="timeline-avatar-xl" style="background-image:url('${String(avatarUrl).replace(/'/g, "\\'")}');background-size:cover;background-position:center;color:transparent"></div>`
     : `<div class="timeline-avatar-xl">${escapeHtml(initials)}</div>`;
 
+  const { likeCounts, commentCounts } = await fetchEngagementCounts(posts.map(p => p.id));
   const postsHtml = posts.length ? posts.map(p => {
     const status = (p.sold || p.active === false)
       ? '<span class="status st-cancelled">SOLD</span>'
@@ -6575,6 +6964,7 @@ async function openUserProfile(username) {
           <div class="timeline-post-title">${escapeHtml(p.title)}</div>
           <div class="timeline-post-meta">${escapeHtml(p.game)} · ${escapeHtml(p.server || '')} · ${status}</div>
           <div class="timeline-post-price">₱${Number(p.price).toLocaleString()}</div>
+          <div style="margin-top:6px;font-size:0.76rem;color:var(--text2)">🤍 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
         </div>
       </div>
     </div>`;
@@ -6600,12 +6990,29 @@ async function openUserProfile(username) {
       </div>
     </div>
     <div class="timeline-tabs">
-      <button type="button" class="timeline-tab active">Posts (${posts.length})</button>
-      <button type="button" class="timeline-tab" style="opacity:.55;cursor:default">About</button>
+      <button type="button" class="timeline-tab active" id="timelineTabPosts" onclick="showTimelineTab('posts')">Posts (${posts.length})</button>
+      <button type="button" class="timeline-tab" id="timelineTabAbout" onclick="showTimelineTab('about')">About</button>
     </div>
     <div id="timelinePostsFeed">${postsHtml}</div>
+    <div id="timelineAboutFeed" style="display:none">
+      ${bio
+        ? `<div class="timeline-post" style="cursor:default;white-space:pre-wrap">${escapeHtml(bio)}</div>`
+        : `<div class="empty" style="padding:28px"><div class="icon">💬</div><p>${isMe ? 'You haven\'t added an About Me yet.' : 'No About Me yet.'}</p>${isMe ? `<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="closeModal('userProfileModal');showPage('profile')">Add About Me</button>` : ''}</div>`}
+    </div>
   `;
   openModal('userProfileModal');
+}
+
+function showTimelineTab(tab) {
+  const postsTab = document.getElementById('timelineTabPosts');
+  const aboutTab = document.getElementById('timelineTabAbout');
+  const postsFeed = document.getElementById('timelinePostsFeed');
+  const aboutFeed = document.getElementById('timelineAboutFeed');
+  if (!postsTab || !aboutTab || !postsFeed || !aboutFeed) return;
+  postsTab.classList.toggle('active', tab === 'posts');
+  aboutTab.classList.toggle('active', tab === 'about');
+  postsFeed.style.display = tab === 'posts' ? '' : 'none';
+  aboutFeed.style.display = tab === 'about' ? '' : 'none';
 }
 
 function openListingFromTimeline(id) {
