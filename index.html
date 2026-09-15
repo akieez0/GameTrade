@@ -546,6 +546,10 @@
     z-index:2000; display:none; align-items:center; justify-content:center;
   }
   .modal-overlay.show { display:flex; }
+  /* auth-screen sits at z-index:5000 (see AUTH SCREENS below) so the pre-login
+     Contact Support/appeal modal needs to sit above it, or it opens invisibly
+     behind the login page and looks like the button does nothing. */
+  #authSupportModal { z-index:5500; }
   .modal {
     background:var(--bg2); border:1px solid var(--border); border-radius:16px;
     width:90%; max-width:440px; max-height:90vh; overflow-y:auto;
