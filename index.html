@@ -1196,12 +1196,17 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 .timeline-post-price { color: #3baad6; font-weight: 800; margin-top: 6px; }
 .like-pill {
   display: inline-flex; align-items: center; gap: 6px;
-  background: #fff0f5; border: 1px solid #ffc9dd; color: #d97094;
+  background: linear-gradient(135deg, #f7fcff, #eef9ff);
+  border: 1.5px solid #cfe5f3; color: #5a8fb0;
   border-radius: 999px; padding: 7px 14px; font-size: 0.85rem; font-weight: 700;
-  cursor: pointer; transition: transform .16s ease, box-shadow .16s ease;
+  cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
 }
-.like-pill:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(217,112,148,.18); }
-.like-pill.liked { background: #ffe0eb; border-color: #ffb0cc; }
+.like-pill:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(101,200,242,.22); border-color: #9bdbff; }
+.like-pill.liked {
+  background: linear-gradient(135deg, #eaf8ff, #dff0ff);
+  border-color: #72ccef; color: #2f6f8f;
+  box-shadow: 0 4px 14px rgba(114,204,239,.25);
+}
 .comment-count-pill {
   display: inline-flex; align-items: center; gap: 5px;
   color: var(--text2); font-size: 0.82rem; font-weight: 600;
@@ -1217,16 +1222,16 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
   border: 1px solid #e0f0fa; border-radius: 999px;
   padding: 4px 10px;
 }
-.card-eng-stat.likes { color: #c45f88; border-color: #ffd0e0; background: linear-gradient(135deg, #fff8fb, #ffeef4); }
+.card-eng-stat.likes { color: #3d7fa0; border-color: #b5e4f7; background: linear-gradient(135deg, #f7fcff, #eaf8ff); }
 .card-eng-stat.comments { color: #3d7fa0; border-color: #cfe8f6; background: linear-gradient(135deg, #f3faff, #eef8ff); }
 .card-eng-stat .eng-num { font-weight: 800; }
 .card-popular-badge {
   position: absolute; top: 10px; right: 10px; z-index: 2;
-  background: linear-gradient(135deg, #ffe8a3, #ffd56a);
-  color: #7a5b00; border: 1px solid #f2bd55;
+  background: linear-gradient(135deg, #eaf8ff, #d4f0ff 45%, #f3eeff);
+  color: #3d7fa0; border: 1.5px solid #9bdbff;
   font-size: 0.68rem; font-weight: 800; letter-spacing: .02em;
-  padding: 4px 9px; border-radius: 999px;
-  box-shadow: 0 3px 12px rgba(242,189,85,.28);
+  padding: 4px 10px; border-radius: 999px;
+  box-shadow: 0 3px 14px rgba(101,200,242,.28);
 }
 .engagement-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -3679,7 +3684,7 @@ async function renderProfilePosts() {
       <div style="font-weight:800;color:#2f6f8f;margin-bottom:4px">${escapeHtml(p.title)}</div>
       <div style="font-size:0.8rem;color:var(--text2);margin-bottom:6px">${escapeHtml(p.game)} · ${status}</div>
       <div style="color:#3baad6;font-weight:800">₱${Number(p.price).toLocaleString()}</div>
-      <div style="margin-top:8px;font-size:0.76rem;color:var(--text2)">🤍 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
+      <div style="margin-top:8px;font-size:0.76rem;color:var(--text2)">🩵 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
     </div>`;
   }).join('');
 }
@@ -4300,7 +4305,7 @@ async function renderListings() {
     return `
     <div class="card marketplace-card" data-post-id="${escapeHtml(idStr)}" data-action="open-listing" style="position:relative">
       ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" data-action="staff-delete" data-post-id="${escapeHtml(idStr)}">✕</button>` : ''}
-      ${isPopular ? `<span class="card-popular-badge">🔥 Popular</span>` : ''}
+      ${isPopular ? `<span class="card-popular-badge">☁️ Popular</span>` : ''}
       <div class="card-img">
         <span class="card-badge">${escapeHtml(l.server)}</span>
         ${imgHtml}
@@ -4313,8 +4318,8 @@ async function renderListings() {
           <button type="button" class="btn btn-primary btn-sm" data-action="open-listing" data-post-id="${escapeHtml(idStr)}">View</button>
         </div>
         <div class="card-engagement">
-          <span class="card-eng-stat likes" data-eng="likes">likes (<span class="eng-num">${likes}</span>)</span>
-          <span class="card-eng-stat comments" data-eng="comments">comment (<span class="eng-num">${comments}</span>)</span>
+          <span class="card-eng-stat likes" data-eng="likes">🩵 <span class="eng-num">${likes}</span></span>
+          <span class="card-eng-stat comments" data-eng="comments">💬 <span class="eng-num">${comments}</span></span>
         </div>
       </div>
     </div>
@@ -4431,7 +4436,7 @@ async function loadPostLikes(postId) {
     const liked = currentUser && rows.some(r => String(r.username).toLowerCase() === String(currentUser.username).toLowerCase());
     const prev = likeBtn.querySelector('#likeCount')?.textContent;
     likeBtn.classList.toggle('liked', !!liked);
-    likeBtn.innerHTML = `${liked ? '❤️' : '🤍'} <span id="likeCount">${rows.length}</span>`;
+    likeBtn.innerHTML = `${liked ? '🩵' : '🤍'} <span id="likeCount">${rows.length}</span>`;
     if (prev != null && String(prev) !== String(rows.length)) {
       likeBtn.classList.remove('heart-pop');
       void likeBtn.offsetWidth;
@@ -7269,7 +7274,7 @@ async function openUserProfile(username) {
           <div class="timeline-post-title">${escapeHtml(p.title)}</div>
           <div class="timeline-post-meta">${escapeHtml(p.game)} · ${escapeHtml(p.server || '')} · ${status}</div>
           <div class="timeline-post-price">₱${Number(p.price).toLocaleString()}</div>
-          <div style="margin-top:6px;font-size:0.76rem;color:var(--text2)">🤍 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
+          <div style="margin-top:6px;font-size:0.76rem;color:var(--text2)">🩵 ${likeCounts[p.id] || 0} &nbsp; 💬 ${commentCounts[p.id] || 0}</div>
         </div>
       </div>
     </div>`;
