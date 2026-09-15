@@ -2385,27 +2385,21 @@ function startPublicTransactionsRealtimeListener() {
             ).toLowerCase();
 
             if (payload.eventType === 'INSERT' && username !== String(tx.buyer || '').toLowerCase()) {
-              showToast('🔔 New Transaction', `#${tx.id} • ${tx.item}`);
-              const dot = document.getElementById('notifDot');
-              if (dot) dot.style.display = 'block';
+              notifyOnce(`tx-new-${tx.id}`, '🔔 New Transaction', `#${tx.id} • ${tx.item}`);
             } else if (
               payload.eventType === 'UPDATE' &&
               tx.mm &&
               previous && !previous.mm &&
               actor !== username
             ) {
-              showToast('💬 GC Created', `Transaction #${tx.id} is now active. Open Transactions → Access GC.`);
-              const dot = document.getElementById('notifDot');
-              if (dot) dot.style.display = 'block';
+              notifyOnce(`tx-mm-${tx.id}`, '💬 GC Created', `Transaction #${tx.id} is now active. Open Transactions → Access GC.`);
             } else if (
               payload.eventType === 'UPDATE' &&
               lastMsg &&
               lastMsg.type === 'chat' &&
               String(lastMsg.from || '').toLowerCase() !== username
             ) {
-              showToast('💬 New GC Message', `@${lastMsg.from}: ${String(lastMsg.text || '').substring(0, 55)}`);
-              const dot = document.getElementById('notifDot');
-              if (dot) dot.style.display = 'block';
+              notifyOnce(`tx-msg-${tx.id}-${(tx.messages || []).length}`, '💬 New GC Message', `@${lastMsg.from}: ${String(lastMsg.text || '').substring(0, 55)}`);
             }
           } catch (err) {
             console.error('Public Transactions Realtime update failed:', err);
@@ -2441,9 +2435,7 @@ function startPublicListingsRealtimeListener() {
               const seller = row.seller_username || row.seller || '';
               const title = row.title || 'New listing';
               if (currentUser && String(seller).toLowerCase() !== String(currentUser.username || '').toLowerCase()) {
-                showToast('🆕 New post', `${title} by @${seller}`);
-                const dot = document.getElementById('notifDot');
-                if (dot) dot.style.display = 'block';
+                notifyOnce(`listing-new-${row.id}`, '🆕 New post', `${title} by @${seller}`);
               }
             }
             if (payload.eventType === 'DELETE' || (payload.eventType === 'UPDATE' && row && row.active === false)) {
@@ -4551,14 +4543,12 @@ async function loadPublicTransactions(showNotification = false) {
         const lastMsg = (event.messages || []).slice(-1)[0];
         const isNewMsg = lastMsg && lastMsg.type === 'chat' && lastMsg.from !== currentUser.username;
         if (isNewMsg) {
-          showToast('💬 New GC message', `@${lastMsg.from}: ${lastMsg.text.substring(0, 55)}`);
+          notifyOnce(`tx-msg-${event.id}-${(event.messages || []).length}`, '💬 New GC message', `@${lastMsg.from}: ${lastMsg.text.substring(0, 55)}`);
         } else if (added) {
-          showToast('🔔 New transaction', `#${event.id} • ${event.item}`);
+          notifyOnce(`tx-new-${event.id}`, '🔔 New transaction', `#${event.id} • ${event.item}`);
         } else if (changed && event.status !== 'WAITING FOR MIDDLEMAN') {
-          showToast('🔔 Transaction updated', `#${event.id} • ${event.status}`);
+          notifyOnce(`tx-status-${event.id}-${event.status}`, '🔔 Transaction updated', `#${event.id} • ${event.status}`);
         }
-        const dot = document.getElementById('notifDot');
-        if (dot) dot.style.display = 'block';
       }
     }
 
@@ -4600,7 +4590,30 @@ async function deletePublicTransaction(txId) {
   if (error) throw error;
 }
 
-function startMiddleman() {
+// Transaction/GC numbers used to be fully random (GF-48000..56999) with no
+// collision check, so two different deals could end up with numbers that
+// looked similar or even clashed — confusing when buyers/sellers/MM need
+// to reference a specific GC. This makes them roughly time-ordered (so
+// newer deals get higher numbers, easier to tell apart at a glance) and
+// guarantees no two transactions ever share the same number.
+async function generateUniqueTxId() {
+  const existingIds = new Set(getTransactions().map(t => String(t.id)));
+  try {
+    const { data } = await supabaseClient.from('public_transactions').select('id');
+    (data || []).forEach(r => existingIds.add(String(r.id)));
+  } catch (e) {
+    console.warn('Could not check existing transaction IDs in Supabase, using local list only:', e);
+  }
+  let n = 100000 + (Date.now() % 900000);
+  let id = 'GF-' + n;
+  while (existingIds.has(id)) {
+    n++;
+    id = 'GF-' + n;
+  }
+  return id;
+}
+
+async function startMiddleman() {
   if (!currentListing || !currentUser) return;
   if (currentListing.seller === currentUser.username) {
     showToast('Error', 'You cannot buy your own listing.');
@@ -4608,7 +4621,7 @@ function startMiddleman() {
   }
   closeModal('listingModal');
   const fee = feeConfig.type === 'fixed' ? feeConfig.value : Math.ceil(currentListing.price * feeConfig.value / 100);
-  const txId = 'GF-' + (48000 + Math.floor(Math.random() * 9000));
+  const txId = await generateUniqueTxId();
   const tx = {
     id: txId,
     listingId: currentListing.id,
@@ -5856,7 +5869,14 @@ function renderAdmin() {
     </tr>`;
   }).join('');
   const adminTxBody=document.getElementById('adminTxBody');
-  if(adminTxBody){ const txs=getTransactions(); adminTxBody.innerHTML=txs.length?txs.map(t=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.item||'')}</td><td>@${escapeHtml(t.buyer||'')}</td><td>@${escapeHtml(t.seller||'')}</td><td>${escapeHtml(t.status||'')}</td><td><button class="btn btn-danger btn-sm" onclick="removeTransactionByAdmin('${escapeHtml(t.id)}')">✕ Remove</button></td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">No transactions.</td></tr>'; }
+  if(adminTxBody){
+    // A transaction removed by any participant (gcClosed) is done — keep it
+    // out of the Admin table too, same as it disappears from everyone
+    // else's Active GCs list. Admin can still fully purge via Supabase if
+    // ever truly needed, but it shouldn't linger here after removal.
+    const txs=getTransactions().filter(t => !t.gcClosed);
+    adminTxBody.innerHTML=txs.length?txs.map(t=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.item||'')}</td><td>@${escapeHtml(t.buyer||'')}</td><td>@${escapeHtml(t.seller||'')}</td><td>${escapeHtml(t.status||'')}</td><td><button class="btn btn-danger btn-sm" onclick="removeTransactionByAdmin('${escapeHtml(t.id)}')">✕ Remove</button></td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">No transactions.</td></tr>';
+  }
   refreshAdminAppBadge();
 }
 
@@ -5913,6 +5933,20 @@ function showToast(title, body) {
   toast.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div><div class="toast-body">${escapeHtml(body)}</div>`;
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 4500);
+}
+
+// Realtime push AND the 5s polling fallback can both notice the same
+// event (new post, new transaction, new GC message) — this makes sure it
+// only ever pops ONE toast for a given event, no matter which path sees
+// it first.
+window.__shownNotifKeys = window.__shownNotifKeys || new Set();
+function notifyOnce(key, title, body) {
+  if (window.__shownNotifKeys.has(key)) return;
+  window.__shownNotifKeys.add(key);
+  if (window.__shownNotifKeys.size > 300) window.__shownNotifKeys.clear();
+  showToast(title, body);
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.style.display = 'block';
 }
 
 
