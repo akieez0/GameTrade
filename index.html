@@ -3575,9 +3575,10 @@ async function renderNavUserDropdown(query, openFirst) {
       role: (u.role || 'user').toLowerCase()
     }));
     if (typeof supabaseClient !== 'undefined' && supabaseClient) {
+      const navOrFilter = `username.ilike.%${q}%,display_name.ilike.%${q}%`;
       const [{ data: profiles }, { data: presence }] = await Promise.all([
-        supabaseClient.from('profiles').select('username,display_name,role,banned,ban_reason,avatar_url').ilike('username', `%${q}%`).limit(12),
-        supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(12)
+        supabaseClient.from('profiles').select('username,display_name,role,banned,ban_reason,avatar_url').or(navOrFilter).limit(12),
+        supabaseClient.from('public_presence').select('*').or(navOrFilter).limit(12)
       ]);
       const presenceMap = {};
       (presence || []).forEach(p => { presenceMap[String(p.username || '').toLowerCase()] = p; });
@@ -3967,21 +3968,66 @@ function checkListingSpam(title, desc) {
   };
 }
 
-function addModerationItem(listing, reason, source = 'auto') {
+async function addModerationItem(listing, reason, source = 'auto') {
   const items = getModerationItems();
   if (items.some(x => String(x.listingId) === String(listing.id) && x.status === 'pending')) return;
-  items.unshift({
+  const modItem = {
     id: 'MOD-' + Date.now(), listingId: String(listing.id), seller: listing.seller,
     title: listing.title, reason: reason || 'Needs review', source, status: 'pending',
     created: new Date().toISOString(), reviewedBy: null, reviewedAt: null
-  });
+  };
+  items.unshift(modItem);
   saveModerationItems(items);
   refreshModerationBadge();
+
+  // Push to Supabase so EVERY Middleman/Admin sees this live, on any device —
+  // not just the browser that created/flagged the post.
+  try {
+    await supabaseClient.from('moderation_queue').insert({
+      id: modItem.id,
+      listing_id: modItem.listingId,
+      seller: modItem.seller,
+      title: modItem.title,
+      reason: modItem.reason,
+      source: modItem.source,
+      status: modItem.status,
+      created_at: modItem.created
+    });
+  } catch (err) {
+    console.error('Moderation queue sync to Supabase failed (kept locally as fallback):', err);
+  }
+
   // Only notify staff when something is auto-flagged (not normal posts)
   if (source === 'auto' && (isMiddleman() || isAdmin())) {
     showToast('🛡 Moderation queue', `Flagged post needs review: ${listing.title || 'Untitled'}`);
     const dot = document.getElementById('notifDot');
     if (dot) dot.style.display = 'block';
+  }
+}
+
+async function fetchModerationQueue() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('moderation_queue')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const remote = (data || []).map(r => ({
+      id: r.id, listingId: String(r.listing_id), seller: r.seller, title: r.title,
+      reason: r.reason, source: r.source, status: r.status,
+      created: r.created_at, reviewedBy: r.reviewed_by, reviewedAt: r.reviewed_at
+    }));
+    // Merge in any local-only items that haven't synced to Supabase yet (e.g. offline)
+    const local = getModerationItems();
+    const remoteIds = new Set(remote.map(r => r.id));
+    const localOnly = local.filter(l => !remoteIds.has(l.id));
+    const merged = [...remote, ...localOnly];
+    saveModerationItems(merged);
+    return merged;
+  } catch (err) {
+    console.warn('Could not load live moderation queue from Supabase, showing local cache:', err);
+    return getModerationItems();
   }
 }
 
@@ -4021,6 +4067,9 @@ async function setListingModeration(listingId, action) {
 
   try {
     await supabaseClient.from('public_listings').update({ active: listing.active !== false }).eq('id', String(listingId));
+    await supabaseClient.from('moderation_queue').update({
+      status: mod.status, reviewed_by: mod.reviewedBy, reviewed_at: mod.reviewedAt
+    }).eq('id', mod.id);
     await loadPublicListings();
   } catch (err) { console.error('Moderation sync failed:', err); }
 
@@ -4149,11 +4198,13 @@ async function banUserFromModeration(username) {
   }
 }
 
-function renderModeration() {
+async function renderModeration() {
   if (!isMiddleman()) return;
   const box = document.getElementById('moderationList');
   if (!box) return;
-  const pending = getModerationItems().filter(x => x.status === 'pending');
+  box.innerHTML = '<div class="empty">Loading moderation queue…</div>';
+  const allItems = await fetchModerationQueue();
+  const pending = allItems.filter(x => x.status === 'pending');
   if (!pending.length) {
     box.innerHTML = '<div class="empty"><div class="icon">✅</div>No posts waiting for moderation.</div>';
     refreshModerationBadge();
@@ -5927,9 +5978,10 @@ async function searchUsers(query) {
   }
 
   try {
+    const orFilter = `username.ilike.%${q}%,display_name.ilike.%${q}%`;
     const [{ data: profiles, error: profileError }, { data: presence, error: presenceError }] = await Promise.all([
-      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').ilike('username', `%${q}%`).limit(20),
-      supabaseClient.from('public_presence').select('*').ilike('username', `%${q}%`).limit(20)
+      supabaseClient.from('profiles').select('username,display_name,role,banned,banned_until,ban_reason,avatar_url').or(orFilter).limit(20),
+      supabaseClient.from('public_presence').select('*').or(orFilter).limit(20)
     ]);
     if (profileError && presenceError) throw profileError || presenceError;
 
@@ -5954,7 +6006,10 @@ async function searchUsers(query) {
     });
 
     if (!users.length) {
-      const local = load(KEYS.users, []).filter(u => String(u.username || '').toLowerCase().includes(q.toLowerCase()));
+      const local = load(KEYS.users, []).filter(u =>
+        String(u.username || '').toLowerCase().includes(q.toLowerCase()) ||
+        String(u.displayName || '').toLowerCase().includes(q.toLowerCase())
+      );
       users = local.map(u => ({ username: u.username, display_name: u.displayName || u.username, online: false, banned: !!u.banned, ban_reason: u.banReason || '', role: u.role || 'user' }));
     }
 
