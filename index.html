@@ -593,7 +593,10 @@
   .presence-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto; background:#6b7280; box-shadow:0 0 0 2px rgba(107,114,128,.12); }
   .presence-dot.online { background:var(--success); box-shadow:0 0 0 2px rgba(46,213,115,.15); }
   .presence-dot.busy { background:var(--warning); box-shadow:0 0 0 2px rgba(255,165,2,.15); }
-  .availability-pill { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:999px; background:var(--bg4); font-size:0.68rem; font-weight:600; }
+  .availability-pill { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:999px; background:var(--bg4); font-size:0.68rem; font-weight:600; color:var(--text2); }
+  .availability-pill.pill-online { background:rgba(46,213,115,.14); color:#1a9e4a; }
+  .availability-pill.pill-busy { background:rgba(255,165,2,.16); color:#c07300; }
+  .availability-pill.pill-offline { background:rgba(107,114,128,.14); color:#6b7280; }
   .listing-seller-line { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px; }
   .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
   .stat-card {
@@ -1213,8 +1216,8 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 }
 .gc-input input[type="text"] { flex: 1; min-width: 0; }
 .msg-image {
-  display: block; max-width: min(240px, 70vw); max-height: 280px;
-  border-radius: 12px; margin-top: 6px; cursor: pointer;
+  display: block; max-width: min(320px, 78vw); max-height: 340px;
+  border-radius: 12px; margin-top: 6px; cursor: zoom-in;
   border: 1px solid #e8f4fc; box-shadow: 0 4px 14px rgba(74,135,171,.12);
   object-fit: contain; background: #f7fbff;
 }
@@ -1227,8 +1230,9 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .gc-lightbox img {
-  max-width: min(920px, 94vw); max-height: 88vh; border-radius: 14px;
+  max-width: min(1100px, 96vw); max-height: 92vh; border-radius: 14px;
   box-shadow: 0 20px 50px rgba(0,0,0,.35); background: #fff;
+  width: auto; height: auto;
 }
 .gc-lightbox-close {
   position: absolute; top: 16px; right: 16px;
@@ -1733,19 +1737,14 @@ thead th{
           <div id="gcActions">
             <button class="btn btn-primary btn-block btn-sm" onclick="openPaymentModal()">💳 Payment guide</button>
             <button class="btn btn-outline btn-block btn-sm" style="margin-top:8px" onclick="advanceStatus()">Advance Status</button>
-            <button class="btn btn-block btn-sm gc-btn-complete" style="margin-top:8px" id="btnCompleteTx" onclick="completeTransaction()">✅ Complete Transaction</button>
-            <button class="btn btn-block btn-sm gc-btn-cancel" style="margin-top:8px" onclick="cancelTransaction()">✕ Cancel Transaction</button>
+            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">Use the ✅ Complete / ✕ Cancel buttons above (in the GC header) to end this transaction.</p>
           </div>
           <div id="gcMmOnlyActions" style="margin-top:10px;display:none">
-            <button class="btn btn-block btn-sm gc-btn-complete" id="btnCompleteTxMm" onclick="completeTransaction()">✅ Complete Transaction</button>
-            <button class="btn btn-block btn-sm gc-btn-cancel" style="margin-top:8px" onclick="cancelTransactionByMm()">✕ Cancel Transaction</button>
-            <button class="btn btn-primary btn-block btn-sm" style="margin-top:8px;display:none" id="btnCloseGc" onclick="closeGcByMiddleman()">🗑 Finish & Delete GC</button>
-            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">1) ✅ Complete Transaction → status becomes COMPLETED, chat locks for Buyer/Seller/MM.<br>2) Then 🗑 Finish &amp; Delete GC to remove it.</p>
+            <p style="font-size:0.72rem;color:var(--text2)">1) ✅ Complete (above) → status becomes COMPLETED, chat locks for Buyer/Seller/MM.<br>2) Then 🗑 Finish &amp; Delete GC (above) to remove it.</p>
           </div>
           <div id="gcParticipantActions" style="margin-top:10px;display:none">
-            <button class="btn btn-block btn-sm gc-btn-rate" id="btnRateDeal" onclick="openRatingModal()" style="display:none;margin-bottom:8px">⭐ Rate this deal</button>
             <button class="btn btn-danger btn-block btn-sm" onclick="removeFinishedGcForParticipant()">🗑 Remove Finished Transaction</button>
-            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">After COMPLETED: rate the Middleman (and seller if you are the buyer). Then you may remove the finished GC.</p>
+            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">After COMPLETED: rate the Middleman (and seller if you are the buyer) using ⭐ Rate above. Then you may remove the finished GC.</p>
           </div>
           <div id="gcAdminOnlyActions" style="margin-top:10px;display:none">
             <button class="btn btn-danger btn-block btn-sm" onclick="closeGcByAdmin()">✕ Remove Finished GC</button>
@@ -2619,6 +2618,20 @@ async function refreshUnreadDmCounts() {
 
 async function markDmThreadRead(otherUsername) {
   if (!currentUser || !otherUsername) return;
+  // Optimistically clear this thread's unread count right away so the
+  // number/notification disappears the moment it's opened/read — don't
+  // wait for the round trip to the database.
+  const key = String(otherUsername).toLowerCase();
+  if (unreadDmCounts[key]) {
+    delete unreadDmCounts[key];
+    const total = Object.values(unreadDmCounts).reduce((a, b) => a + b, 0);
+    const badge = document.getElementById('navDmBadge');
+    if (badge) {
+      badge.textContent = total > 99 ? '99+' : String(total);
+      badge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
+    renderOnlineUsers();
+  }
   try {
     const { error } = await supabaseClient
       .from('direct_messages')
@@ -2987,6 +3000,7 @@ function enterApp() {
   syncPublicPresence();
   loadPublicTransactions(false);
   refreshUnreadDmCounts();
+  refreshOwnRatingsFromSupabase();
   if (!window.__presenceTimer) {
     window.__presenceTimer = setInterval(() => {
       if (currentUser) {
@@ -3209,14 +3223,14 @@ async function changeProfilePicture(input) {
     input.value = '';
     return;
   }
-  if (file.size > 4 * 1024 * 1024) {
-    showToast('Error', 'Image too large. Please use a photo under ~4MB.');
+  if (file.size > 8 * 1024 * 1024) {
+    showToast('Error', 'Image too large. Please use a photo under ~8MB.');
     input.value = '';
     return;
   }
   try {
     showToast('Uploading…', 'Saving your profile picture…');
-    const dataUrl = await compressImageFile(file, 320, 0.72);
+    const dataUrl = await compressImageFile(file, 720, 0.88);
     const users = load(KEYS.users, []);
     const u = users.find(x => x.username === currentUser.username);
     if (!u) return;
@@ -3357,7 +3371,7 @@ function showPage(page) {
   if (page === 'moderation') renderModeration();
   if (page === 'support') renderHelpFaqs();
   if (page === 'marketplace') renderListings();
-  if (page === 'profile') updateNavUser();
+  if (page === 'profile') { updateNavUser(); refreshOwnRatingsFromSupabase(); }
 }
 
 // ========== LISTINGS ==========
@@ -3386,22 +3400,24 @@ function getPresenceHtml(username, compact = false) {
     const avail = String(remote.mm_availability || 'AVAILABLE').toUpperCase();
     if (role === 'middleman' || role === 'admin') {
       let cls = online ? (avail === 'BUSY' ? 'busy' : 'online') : '';
+      let pillCls = online ? (avail === 'BUSY' ? 'pill-busy' : 'pill-online') : 'pill-offline';
       const label = online ? avail : 'OFFLINE';
-      return `<span class="availability-pill"><span class="presence-dot ${cls}"></span>${label}</span>`;
+      return `<span class="availability-pill ${pillCls}"><span class="presence-dot ${cls}"></span>${label}</span>`;
     }
-    return `<span class="availability-pill"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
+    return `<span class="availability-pill ${online ? 'pill-online' : 'pill-offline'}"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
   }
   const u = getUser(username);
-  if (!u) return `<span class="availability-pill"><span class="presence-dot"></span> Offline</span>`;
+  if (!u) return `<span class="availability-pill pill-offline"><span class="presence-dot"></span> Offline</span>`;
   const online = isUserOnline(u);
   const role = (u.role || 'user').toLowerCase();
   const avail = (u.mmAvailability || 'AVAILABLE').toUpperCase();
   if (role === 'middleman' || role === 'admin') {
     let cls = online ? (avail === 'BUSY' ? 'busy' : 'online') : '';
+    let pillCls = online ? (avail === 'BUSY' ? 'pill-busy' : 'pill-online') : 'pill-offline';
     const label = online ? avail : 'OFFLINE';
-    return `<span class="availability-pill"><span class="presence-dot ${cls}"></span>${label}</span>`;
+    return `<span class="availability-pill ${pillCls}"><span class="presence-dot ${cls}"></span>${label}</span>`;
   }
-  return `<span class="availability-pill"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
+  return `<span class="availability-pill ${online ? 'pill-online' : 'pill-offline'}"><span class="presence-dot ${online ? 'online' : ''}"></span>${online ? 'Online' : 'Offline'}</span>`;
 }
 
 function renderProfileReviews() {
@@ -3540,6 +3556,68 @@ function pushReviewToUser(username, type, review) {
   }
 }
 
+// Ratings are stored in Supabase so they show up on the rated user's
+// profile for EVERYONE — not just on the device that submitted them.
+async function syncReviewToSupabase(toUsername, type, review) {
+  if (!supabaseClient || !toUsername) return false;
+  try {
+    const { error } = await supabaseClient.from('reviews').insert({
+      to_username: toUsername,
+      from_username: review.from,
+      type,
+      rating: review.rating,
+      comment: review.comment || '',
+      tx_id: String(review.txId || ''),
+      created_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('Review cloud sync failed (check Supabase "reviews" table/policies):', err);
+    return false;
+  }
+}
+
+async function fetchUserReviews(username) {
+  const result = { sellerReviews: [], mmReviews: [] };
+  if (!supabaseClient || !username) return result;
+  try {
+    const { data, error } = await supabaseClient
+      .from('reviews')
+      .select('*')
+      .eq('to_username', username)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    (data || []).forEach(r => {
+      const mapped = {
+        from: r.from_username,
+        rating: Number(r.rating) || 0,
+        comment: r.comment || '',
+        txId: r.tx_id,
+        date: r.created_at ? new Date(r.created_at).toLocaleString('en-PH') : ''
+      };
+      if (String(r.type).toLowerCase() === 'mm') result.mmReviews.push(mapped);
+      else result.sellerReviews.push(mapped);
+    });
+  } catch (err) {
+    console.warn('Fetch reviews failed (check Supabase "reviews" table/policies):', err);
+  }
+  return result;
+}
+
+// Pulls the logged-in user's OWN ratings from Supabase (in case someone on
+// another device rated them) and refreshes the profile UI.
+async function refreshOwnRatingsFromSupabase() {
+  if (!currentUser) return;
+  const remote = await fetchUserReviews(currentUser.username);
+  if (remote.sellerReviews.length || remote.mmReviews.length) {
+    currentUser.sellerReviews = remote.sellerReviews;
+    currentUser.mmReviews = remote.mmReviews;
+    updateNavUser();
+    if (typeof renderProfileReviews === 'function') renderProfileReviews();
+  }
+}
+
 function submitDealRating() {
   if (!currentTx || !currentUser) return;
   if (currentTx.status !== 'COMPLETED') return showToast('Not yet', 'Complete the transaction first.');
@@ -3560,16 +3638,16 @@ function submitDealRating() {
   let saved = 0;
   if (currentTx.mm && (isBuyer || isSeller)) {
     if (mmVal < 1 || mmVal > 5) return showToast('Rate Middleman', 'Please choose 1–5 stars for the Middleman.');
-    pushReviewToUser(currentTx.mm, 'mm', {
-      from: u, rating: mmVal, comment: mmComment, txId: currentTx.id, date: getPHT()
-    });
+    const mmReview = { from: u, rating: mmVal, comment: mmComment, txId: currentTx.id, date: getPHT() };
+    pushReviewToUser(currentTx.mm, 'mm', mmReview);
+    syncReviewToSupabase(currentTx.mm, 'mm', mmReview);
     saved++;
   }
   if (isBuyer && currentTx.seller) {
     if (sellerVal < 1 || sellerVal > 5) return showToast('Rate Seller', 'Please choose 1–5 stars for the Seller.');
-    pushReviewToUser(currentTx.seller, 'seller', {
-      from: u, rating: sellerVal, comment: sellerComment, txId: currentTx.id, date: getPHT()
-    });
+    const sellerReview = { from: u, rating: sellerVal, comment: sellerComment, txId: currentTx.id, date: getPHT() };
+    pushReviewToUser(currentTx.seller, 'seller', sellerReview);
+    syncReviewToSupabase(currentTx.seller, 'seller', sellerReview);
     saved++;
   }
   if (!saved) return showToast('Nothing to rate', 'No rateable party on this deal.');
@@ -4808,13 +4886,16 @@ async function sendGcImage(input) {
     showToast('Error', 'Please choose an image (QR, receipt, screenshot).');
     return;
   }
-  if (file.size > 4 * 1024 * 1024) {
-    showToast('Error', 'Image too large. Use under ~4MB.');
+  if (file.size > 8 * 1024 * 1024) {
+    showToast('Error', 'Image too large. Use under ~8MB.');
     return;
   }
   try {
     showToast('Sending…', 'Attaching image to GC…');
-    const dataUrl = await compressImageFile(file, 900, 0.78);
+    // Keep QR codes / receipts crisp and scannable — higher res + quality
+    // than a normal chat photo since the Middleman relies on these to
+    // confirm payment was actually sent.
+    const dataUrl = await compressImageFile(file, 1280, 0.92);
     const caption = (document.getElementById('gcInput')?.value || '').trim();
     const ok = pushGcMessage({
       type: 'image',
@@ -4864,7 +4945,7 @@ function cancelTransaction() {
     showToast('Access denied', 'Only the Buyer or Seller can cancel this transaction.');
     return;
   }
-  if (!confirm('Cancel this transaction? The GC will be removed.')) return;
+  if (!confirm('Are you sure you want to cancel this transaction?\n\nThe GC (group chat) will be removed and this cannot be undone.')) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
@@ -4899,7 +4980,7 @@ function cancelTransactionByMm() {
     showToast('Already ended', currentTx.status);
     return;
   }
-  if (!confirm('Cancel this transaction? Chat will lock. You can then Finish & Delete the GC.')) return;
+  if (!confirm('Are you sure you want to cancel this transaction?\n\nChat will lock immediately. You can then Finish & Delete the GC.')) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
@@ -5070,7 +5151,7 @@ async function completeTransaction() {
     showToast('Access denied', 'Only the Buyer, Seller, or assigned Middleman can complete this transaction.');
     return;
   }
-  if (!confirm('Mark this transaction as COMPLETED?\n\n• Status → COMPLETED\n• GC will show “Transaction Completed”\n• No more messages can be sent\n• Then you can Finish & Delete GC')) return;
+  if (!confirm('Are you sure you want to mark this transaction as COMPLETED?\n\n• Status → COMPLETED\n• GC will show “Transaction Completed”\n• No more messages can be sent\n• Then you can Finish & Delete GC')) return;
 
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
@@ -6238,12 +6319,22 @@ async function openUserProfile(username) {
     const bd = Date.parse(b.created || '') || Number(b.id) || 0;
     return bd - ad;
   });
+  // A post removed via the Moderation Queue (or a ban delist) is set
+  // active:false without sold:true — that one should no longer exist on
+  // the timeline. Legitimately SOLD posts (active:false, sold:true) still
+  // show, just labeled SOLD.
+  posts = posts.filter(p => p.sold || p.active !== false);
 
   document.getElementById('userProfileTitle').textContent = '@' + uname + ' · Timeline';
   const localUser = getUser(uname) || {};
   const initials = (display.trim().split(/\s+/).slice(0, 2).map(x => x[0]).join('') || 'U').toUpperCase();
-  const sellerRating = getRatingText({ sellerReviews: localUser.sellerReviews || [] }, 'seller');
-  const mmRating = getRatingText({ mmReviews: localUser.mmReviews || [] }, 'mm');
+  // Ratings live in Supabase so they're visible to every viewer, not just
+  // the device that submitted them — fall back to local cache if offline.
+  const remoteReviews = await fetchUserReviews(uname);
+  const sellerReviewsList = remoteReviews.sellerReviews.length ? remoteReviews.sellerReviews : (localUser.sellerReviews || []);
+  const mmReviewsList = remoteReviews.mmReviews.length ? remoteReviews.mmReviews : (localUser.mmReviews || []);
+  const sellerRating = getRatingText({ sellerReviews: sellerReviewsList }, 'seller');
+  const mmRating = getRatingText({ mmReviews: mmReviewsList }, 'mm');
   const role = (row.role || localUser.role || 'user').toLowerCase();
   const roleLabel = role === 'admin' ? 'Admin' : role === 'middleman' ? 'Middleman' : 'User';
   const isMe = currentUser && String(currentUser.username).toLowerCase() === uname.toLowerCase();
@@ -6280,7 +6371,7 @@ async function openUserProfile(username) {
     <div class="timeline-head">
       <h2>${escapeHtml(display)}${banInfo.banned ? ' <span class="user-ban-badge">BANNED</span>' : ''}</h2>
       <div style="color:var(--text2);font-weight:600">@${escapeHtml(uname)} · ${escapeHtml(roleLabel)}</div>
-      <div class="seller-presence" style="margin-top:6px"><span class="presence-dot ${row.online ? 'online' : ''}"></span>${row.online ? 'Online' : 'Offline'}</div>
+      <div class="seller-presence" style="margin-top:6px">${getPresenceHtml(uname)}</div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
         <span class="prof-rating-pill">★ ${sellerRating} Seller</span>
         <span class="prof-rating-pill">★ ${mmRating} Middleman</span>
