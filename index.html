@@ -1708,6 +1708,7 @@ thead th{
               <button class="btn btn-sm gc-btn-cancel" id="btnQuickCancel" onclick="quickCancelTransaction()">✕ Cancel</button>
               <button class="btn btn-sm gc-btn-rate" id="btnQuickRate" onclick="openRatingModal()" style="display:none">⭐ Rate</button>
               <button class="btn btn-sm gc-btn-finish" id="btnQuickCloseGc" onclick="closeGcByMiddleman()" style="display:none">🗑 Finish &amp; Delete GC</button>
+              <button class="btn btn-sm gc-btn-finish" id="btnQuickRemoveGc" onclick="removeFinishedGcForParticipant()" style="display:none">🗑 Remove Transaction</button>
             </div>
           </div>
           <div class="gc-messages" id="gcMessages">
@@ -1743,8 +1744,7 @@ thead th{
             <p style="font-size:0.72rem;color:var(--text2)">1) ✅ Complete (above) → status becomes COMPLETED, chat locks for Buyer/Seller/MM.<br>2) Then 🗑 Finish &amp; Delete GC (above) to remove it.</p>
           </div>
           <div id="gcParticipantActions" style="margin-top:10px;display:none">
-            <button class="btn btn-danger btn-block btn-sm" onclick="removeFinishedGcForParticipant()">🗑 Remove Finished Transaction</button>
-            <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">After COMPLETED: rate the Middleman (and seller if you are the buyer) using ⭐ Rate above. Then you may remove the finished GC.</p>
+            <p style="font-size:0.72rem;color:var(--text2)">After COMPLETED: rate the Middleman (and seller if you are the buyer) using ⭐ Rate above. Then use 🗑 Remove Transaction (above) to clear this finished GC from your list.</p>
           </div>
           <div id="gcAdminOnlyActions" style="margin-top:10px;display:none">
             <button class="btn btn-danger btn-block btn-sm" onclick="closeGcByAdmin()">✕ Remove Finished GC</button>
@@ -4806,12 +4806,17 @@ function openGc(txId) {
   const qComplete = document.getElementById('btnQuickComplete');
   const qCancel = document.getElementById('btnQuickCancel');
   const qClose = document.getElementById('btnQuickCloseGc');
+  const qRemove = document.getElementById('btnQuickRemoveGc');
   if (quick) {
     const showQuick = !!(currentUser && isParticipant);
     quick.classList.toggle('show', showQuick);
     if (qComplete) qComplete.style.display = canComplete ? 'inline-flex' : 'none';
     if (qCancel) qCancel.style.display = !ended ? 'inline-flex' : 'none';
     if (qClose) qClose.style.display = (ended && isAssignedMm(currentTx)) ? 'inline-flex' : 'none';
+    // Buyer/Seller get their own "Remove Transaction" once the deal is
+    // done or cancelled, so finished GCs don't clutter their Active GCs
+    // list — mirrors what the assigned MM already gets via Finish & Delete.
+    if (qRemove) qRemove.style.display = (ended && isParticipant && !isAssignedMm(currentTx)) ? 'inline-flex' : 'none';
     const qRateHdr = document.getElementById('btnQuickRate');
     if (qRateHdr) {
       const canRateHdr = currentTx.status === 'COMPLETED'
@@ -5057,7 +5062,7 @@ async function removeFinishedGcForParticipant() {
     showToast('Not yet', 'You can remove the GC only after the transaction is completed or cancelled.');
     return;
   }
-  if (!confirm('Remove this finished transaction GC for everyone?')) return;
+  if (!confirm('Are you sure you want to remove this finished transaction GC?\n\nThis clears it from the Active GCs list for everyone (Buyer, Seller, and Middleman).')) return;
   tx.gcClosed = true;
   tx.gcClosedAt = getPHT();
   tx.gcClosedBy = currentUser.username;
