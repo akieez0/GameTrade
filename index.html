@@ -1252,15 +1252,19 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
 .comment-compose input::placeholder { color: #9bb4c6; font-weight: 600; }
 
 .marketplace-card {
+  /* no perpetual enter animation — replaying cardRise on every grid rebuild
+     made posts blink and briefly made View unclickable */
+}
+#listingsGrid.market-first-paint .marketplace-card {
   animation: cardRise .38s cubic-bezier(.16,1,.3,1) both;
 }
-.marketplace-card:nth-child(1) { animation-delay: .02s; }
-.marketplace-card:nth-child(2) { animation-delay: .05s; }
-.marketplace-card:nth-child(3) { animation-delay: .08s; }
-.marketplace-card:nth-child(4) { animation-delay: .11s; }
-.marketplace-card:nth-child(5) { animation-delay: .14s; }
-.marketplace-card:nth-child(6) { animation-delay: .17s; }
-.marketplace-card:nth-child(n+7) { animation-delay: .2s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(1) { animation-delay: .02s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(2) { animation-delay: .05s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(3) { animation-delay: .08s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(4) { animation-delay: .11s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(5) { animation-delay: .14s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(6) { animation-delay: .17s; }
+#listingsGrid.market-first-paint .marketplace-card:nth-child(n+7) { animation-delay: .2s; }
 @keyframes cardRise {
   from { opacity: 0; transform: translateY(12px) scale(.98); }
   to { opacity: 1; transform: none; }
@@ -2496,7 +2500,11 @@ function startPublicPresenceRealtimeListener() {
             }
 
             renderOnlineUsers();
-            renderListings();
+            // Note: marketplace cards don't display presence/online status,
+            // so there's no need to rebuild the whole listings grid here.
+            // Doing so on every presence change (which happens ~every 5s
+            // per online user) was the main cause of posts blinking and
+            // buttons briefly becoming unclickable.
           } catch (err) {
             console.error('Public presence realtime update failed:', err);
           }
@@ -2631,7 +2639,7 @@ function startPublicListingsRealtimeListener() {
         { event: '*', schema: 'public', table: 'public_listings' },
         async (payload) => {
           try {
-            // Refresh marketplace without manual refresh
+            // loadPublicListings already re-renders only when data actually changes
             await loadPublicListings();
             const row = payload.new || payload.old;
             if (payload.eventType === 'INSERT' && row) {
@@ -2640,9 +2648,6 @@ function startPublicListingsRealtimeListener() {
               if (currentUser && String(seller).toLowerCase() !== String(currentUser.username || '').toLowerCase()) {
                 notifyOnce(`listing-new-${row.id}`, '🆕 New post', `${title} by @${seller}`);
               }
-            }
-            if (payload.eventType === 'DELETE' || (payload.eventType === 'UPDATE' && row && row.active === false)) {
-              renderListings();
             }
           } catch (err) {
             console.error('Listings realtime failed:', err);
@@ -2711,8 +2716,18 @@ async function loadPublicListings() {
       return bd - ad;
     });
     save(KEYS.listings, remote);
-    renderListings();
-    renderMyListings();
+    // Only rebuild the grid when the data actually changed. Rebuilding on
+    // every poll (even with identical data) was destroying and recreating
+    // the post cards every few seconds, which caused the visible "blinking"
+    // and made buttons on those cards briefly unclickable (the element the
+    // user tapped could get replaced mid-click).
+    const snapshot = JSON.stringify(remote.map(l => [l.id, l.title, l.price, l.active, l.sold, l.image, l.desc, l.seller, l.game, l.server]));
+    if (snapshot !== window.__lastListingsSnapshot) {
+      window.__lastListingsSnapshot = snapshot;
+      window.__lastMarketGridSignature = null; // force grid rebuild for real data changes only
+      renderListings();
+      renderMyListings();
+    }
     return true;
   } catch (err) {
     console.error('Supabase listings load failed:', err);
@@ -2933,7 +2948,6 @@ async function syncPublicPresence() {
     if (error) throw error;
     publicPresence = {};
     (data || []).forEach(row => { publicPresence[String(row.username).toLowerCase()] = row; });
-    renderListings();
     renderOnlineUsers();
   } catch (err) {
     console.error('Supabase presence load failed:', err);
@@ -4203,6 +4217,9 @@ document.addEventListener('input', (e) => {
 async function renderListings() {
   const grid = document.getElementById('listingsGrid');
   if (!grid) return;
+  // Race guard: only the latest render may write to the DOM
+  const gen = (window.__listingsRenderGen = (window.__listingsRenderGen || 0) + 1);
+
   let list = getListings();
   const game = document.getElementById('filterGame')?.value || '';
   const server = document.getElementById('filterServer')?.value || '';
@@ -4217,12 +4234,23 @@ async function renderListings() {
   );
 
   if (!list.length) {
+    if (gen !== window.__listingsRenderGen) return;
+    grid.classList.remove('market-first-paint');
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p style="font-size:1.1rem;margin-bottom:8px">No listings yet</p><p>Be the first to post! Tap the <b style="color:#3baad6">+</b> button, or use the item search above.</p></div>';
     return;
   }
 
-  const { likeCounts, commentCounts } = await fetchEngagementCounts(list.map(l => l.id));
-  // cache for realtime partial updates
+  let likeCounts = window.__engLikeCounts || {};
+  let commentCounts = window.__engCommentCounts || {};
+  try {
+    const eng = await fetchEngagementCounts(list.map(l => l.id));
+    likeCounts = eng.likeCounts || likeCounts;
+    commentCounts = eng.commentCounts || commentCounts;
+  } catch (e) {
+    console.warn('fetchEngagementCounts failed, using cache:', e);
+  }
+  if (gen !== window.__listingsRenderGen) return; // superseded
+
   window.__engLikeCounts = { ...(window.__engLikeCounts || {}), ...likeCounts };
   window.__engCommentCounts = { ...(window.__engCommentCounts || {}), ...commentCounts };
 
@@ -4240,6 +4268,26 @@ async function renderListings() {
 
   const topLike = list.length ? (likeCounts[String(list[0].id)] || 0) : 0;
 
+  // Stable signature so we can skip DOM rewrite when nothing meaningful changed
+  const signature = list.map(l => {
+    const id = String(l.id);
+    return [id, l.title, l.price, l.image, l.seller, l.game, l.server, likeCounts[id]||0, commentCounts[id]||0].join('|');
+  }).join('||');
+  if (signature === window.__lastMarketGridSignature && grid.querySelector('.marketplace-card')) {
+    return; // keep existing nodes — View stays clickable, no blink
+  }
+  window.__lastMarketGridSignature = signature;
+
+  const firstPaint = !window.__marketGridPainted;
+  if (firstPaint) {
+    grid.classList.add('market-first-paint');
+    window.__marketGridPainted = true;
+  } else {
+    grid.classList.remove('market-first-paint');
+  }
+
+  if (gen !== window.__listingsRenderGen) return;
+
   grid.innerHTML = list.map((l, idx) => {
     const idStr = String(l.id);
     const likes = likeCounts[idStr] || 0;
@@ -4248,9 +4296,10 @@ async function renderListings() {
     const imgHtml = l.image
       ? `<img src="${escapeHtml(l.image)}" alt="${escapeHtml(l.title)}" loading="lazy">`
       : (l.emoji || GAME_EMOJIS[l.game] || '🎮');
+    // data-action used by event delegation (survives node replace better for mid-click)
     return `
-    <div class="card marketplace-card" data-post-id="${escapeHtml(idStr)}" style="position:relative" onclick="openListing(${JSON.stringify(idStr)})">
-      ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" onclick="event.stopPropagation();deleteListingAsStaff(${JSON.stringify(idStr)})">✕</button>` : ''}
+    <div class="card marketplace-card" data-post-id="${escapeHtml(idStr)}" data-action="open-listing" style="position:relative">
+      ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" data-action="staff-delete" data-post-id="${escapeHtml(idStr)}">✕</button>` : ''}
       ${isPopular ? `<span class="card-popular-badge">🔥 Popular</span>` : ''}
       <div class="card-img">
         <span class="card-badge">${escapeHtml(l.server)}</span>
@@ -4258,10 +4307,10 @@ async function renderListings() {
       </div>
       <div class="card-body">
         <div class="card-title">${escapeHtml(l.title)}</div>
-        <div class="card-meta">${escapeHtml(l.game)} • <span class="seller-link" onclick="event.stopPropagation();openUserProfile(decodeURIComponent('${encodeURIComponent(String(l.seller))}'))">@${escapeHtml(l.seller)}</span></div>
+        <div class="card-meta">${escapeHtml(l.game)} • <span class="seller-link" data-action="open-seller" data-seller="${escapeHtml(String(l.seller))}">@${escapeHtml(l.seller)}</span></div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div class="price">₱${Number(l.price).toLocaleString()}</div>
-          <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openListing(${JSON.stringify(idStr)})">View</button>
+          <button type="button" class="btn btn-primary btn-sm" data-action="open-listing" data-post-id="${escapeHtml(idStr)}">View</button>
         </div>
         <div class="card-engagement">
           <span class="card-eng-stat likes" data-eng="likes">likes (<span class="eng-num">${likes}</span>)</span>
@@ -4271,6 +4320,47 @@ async function renderListings() {
     </div>
   `;
   }).join('');
+
+  // one-shot: remove first-paint class after animation so future rebuilds don't blink
+  if (firstPaint) {
+    setTimeout(() => {
+      grid.classList.remove('market-first-paint');
+    }, 500);
+  }
+}
+
+// Event delegation for marketplace cards — View works even if a re-render
+// happens around the same time as the click.
+if (!window.__marketGridClickBound) {
+  window.__marketGridClickBound = true;
+  document.addEventListener('click', function marketGridClick(e) {
+    const grid = document.getElementById('listingsGrid');
+    if (!grid || !grid.contains(e.target)) return;
+    const actionEl = e.target.closest('[data-action]');
+    if (!actionEl || !grid.contains(actionEl)) return;
+    const action = actionEl.getAttribute('data-action');
+    if (action === 'staff-delete') {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = actionEl.getAttribute('data-post-id');
+      if (id && typeof deleteListingAsStaff === 'function') deleteListingAsStaff(id);
+      return;
+    }
+    if (action === 'open-seller') {
+      e.preventDefault();
+      e.stopPropagation();
+      const seller = actionEl.getAttribute('data-seller');
+      if (seller && typeof openUserProfile === 'function') openUserProfile(seller);
+      return;
+    }
+    if (action === 'open-listing') {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = actionEl.getAttribute('data-post-id')
+        || actionEl.closest('.marketplace-card')?.getAttribute('data-post-id');
+      if (id && typeof openListing === 'function') openListing(id);
+    }
+  }, true);
 }
 
 // ========== POST LIKES & COMMENTS (Supabase, real-time) ==========
@@ -4280,11 +4370,32 @@ let __marketEngagementChannel = null;
 let __marketEngRefreshTimer = null;
 
 function scheduleMarketplaceEngagementRefresh() {
+  // Prefer in-place count updates. Full renderListings() was rebuilding every
+  // card (replaying animations + destroying the clicked View button mid-tap).
   if (__marketEngRefreshTimer) clearTimeout(__marketEngRefreshTimer);
   __marketEngRefreshTimer = setTimeout(() => {
     const mp = document.getElementById('page-marketplace');
-    if (mp && mp.classList.contains('active')) renderListings();
+    if (!mp || !mp.classList.contains('active')) return;
+    updateMarketplaceEngagementInPlace().catch(err => console.warn('eng in-place update failed:', err));
   }, 280);
+}
+
+async function updateMarketplaceEngagementInPlace() {
+  const grid = document.getElementById('listingsGrid');
+  if (!grid) return;
+  const cards = grid.querySelectorAll('.marketplace-card[data-post-id]');
+  if (!cards.length) return;
+  const ids = Array.from(cards).map(c => c.getAttribute('data-post-id')).filter(Boolean);
+  const { likeCounts, commentCounts } = await fetchEngagementCounts(ids);
+  window.__engLikeCounts = { ...(window.__engLikeCounts || {}), ...likeCounts };
+  window.__engCommentCounts = { ...(window.__engCommentCounts || {}), ...commentCounts };
+  cards.forEach(card => {
+    const id = String(card.getAttribute('data-post-id') || '');
+    const likeEl = card.querySelector('.card-eng-stat.likes .eng-num');
+    const commentEl = card.querySelector('.card-eng-stat.comments .eng-num');
+    if (likeEl) likeEl.textContent = String(likeCounts[id] || 0);
+    if (commentEl) commentEl.textContent = String(commentCounts[id] || 0);
+  });
 }
 
 function startMarketplaceEngagementRealtime() {
@@ -4453,16 +4564,25 @@ function stopPostEngagementRealtime() {
 }
 
 async function openListing(id) {
+  const wantId = String(id == null ? '' : id).trim();
+  if (!wantId) {
+    showToast('Post not found', 'Missing listing id.');
+    return;
+  }
+  // Prevent double-open flicker from rapid double taps / re-renders
+  if (window.__openingListingId === wantId) return;
+  window.__openingListingId = wantId;
+  try {
   const list = getListings();
-  currentListing = list.find(l => String(l.id) === String(id));
+  currentListing = list.find(l => String(l.id) === wantId);
   if (!currentListing && supabaseClient) {
     try {
-      const { data } = await supabaseClient.from('public_listings').select('*').eq('id', String(id)).maybeSingle();
+      const { data } = await supabaseClient.from('public_listings').select('*').eq('id', wantId).maybeSingle();
       if (data) {
         currentListing = publicRowToListing(data);
         // merge into local cache without wiping other posts
         const all = getListings();
-        const idx = all.findIndex(l => String(l.id) === String(id));
+        const idx = all.findIndex(l => String(l.id) === wantId);
         if (idx >= 0) all[idx] = currentListing;
         else all.unshift(currentListing);
         save(KEYS.listings, all);
@@ -4513,6 +4633,9 @@ async function openListing(id) {
   loadPostLikes(currentListing.id);
   loadPostComments(currentListing.id);
   startPostEngagementRealtime(currentListing.id);
+  } finally {
+    if (window.__openingListingId === wantId) window.__openingListingId = null;
+  }
 }
 
 function previewListingImage(input) {
