@@ -1528,6 +1528,31 @@ thead th{
       </div>
       <button type="button" class="btn btn-primary btn-block" onclick="doSignup()" style="margin-top:8px">Create Account</button>
     </div>
+    <button type="button" class="btn btn-outline btn-block" style="margin-top:16px" onclick="openModal('authSupportModal')">💌 Contact Support</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="authSupportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>💌 Contact Support</h3>
+      <button class="modal-close" onclick="closeModal('authSupportModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="help-article-body">
+        <p>Support reviews reports in order received. Typical response window: <b>within 2 hours (PHT)</b> during active hours.</p>
+        <h4>Fastest way to get help</h4>
+        <ul>
+          <li>Log in, then use <b>Report a Problem</b> with a clear description</li>
+          <li>Add the Transaction ID if the issue is about a deal</li>
+          <li>Mention your username and what you already tried</li>
+        </ul>
+        <p>For urgent scam cases, choose category <b>Scam Report</b>.</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('authSupportModal')">Got it</button>
+    </div>
   </div>
 </div>
 
@@ -1736,7 +1761,7 @@ thead th{
           <div class="info-row"><div class="info-label">Middleman</div><div class="info-value" id="infoMM">—</div></div>
           <div class="divider"></div>
           <div id="gcActions">
-            <button class="btn btn-primary btn-block btn-sm" onclick="openPaymentModal()">💳 Payment guide</button>
+            <button class="btn btn-primary btn-block btn-sm" onclick="openPaymentModal()">💳 QR Payment</button>
             <button class="btn btn-outline btn-block btn-sm" style="margin-top:8px" onclick="advanceStatus()">Advance Status</button>
             <p style="font-size:0.72rem;color:var(--text2);margin-top:8px">Use the ✅ Complete / ✕ Cancel buttons above (in the GC header) to end this transaction.</p>
           </div>
@@ -1997,35 +2022,24 @@ thead th{
 <div class="modal-overlay" id="paymentModal">
   <div class="modal">
     <div class="modal-header">
-      <h3>Payment Guide</h3>
+      <h3>QR Payment</h3>
       <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
     </div>
     <div class="modal-body">
-      <p style="margin-bottom:12px;color:var(--text2);font-size:0.9rem">Real deals: send your <b>GCash / Maya QR</b> or receipt in the GC using the <b>＋</b> button. This panel only marks status — no real money moves inside the app.</p>
       <div class="info-row"><div class="info-label">Item Price</div><div class="info-value" id="payItemPrice">₱450</div></div>
       <div class="info-row"><div class="info-label">Middleman Fee</div><div class="info-value" id="payFee">₱20</div></div>
       <div class="info-row"><div class="info-label">Total to Pay</div><div class="info-value" style="color:var(--accent);font-size:1.3rem;font-weight:700" id="payTotal">₱470</div></div>
       <div class="divider"></div>
-      <label style="font-size:0.85rem;color:var(--text2)">Choose Philippine Payment Method</label>
-      <div class="pay-methods">
-        <div class="pay-method selected" data-method="GCash" onclick="selectPay(this)">
-          <div class="pm-icon">💙</div><div class="pm-name">GCash</div>
-        </div>
-        <div class="pay-method" data-method="Maya" onclick="selectPay(this)">
-          <div class="pm-icon">💜</div><div class="pm-name">Maya</div>
-        </div>
-        <div class="pay-method" data-method="Bank Transfer" onclick="selectPay(this)">
-          <div class="pm-icon">🏦</div><div class="pm-name">Bank Transfer</div>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Reference / Account Name (mock)</label>
-        <input type="text" class="form-control" placeholder="e.g. Juan Dela Cruz" id="payRef">
-      </div>
+      <ol style="margin:0 0 4px 18px;padding:0;color:var(--text2);font-size:0.88rem;line-height:1.6">
+        <li>Tap the <b>＋</b> button in the chat.</li>
+        <li>Send your <b>GCash / Maya QR</b> or payment receipt.</li>
+        <li>Then tap <b>Mark as Processing</b> below so the Middleman knows to check it.</li>
+      </ol>
+      <p style="margin-top:10px;color:var(--text2);font-size:0.78rem">This only updates the status in the app — the Middleman still verifies the QR / receipt you sent before releasing the item.</p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('paymentModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmPayment()">Mark as Paid (after QR / receipt)</button>
+      <button class="btn btn-primary" onclick="confirmPayment()">Mark as Processing</button>
     </div>
   </div>
 </div>
@@ -2192,7 +2206,7 @@ let currentDmUser = null;
 let unreadDmCounts = {};
 let mmStatus = 'AVAILABLE';
 let feeConfig = { type: 'fixed', value: 20 };
-let selectedPayMethod = 'GCash';
+
 let pendingListingImage = null; // data URL for new listing photo
 
 // ========== SUPABASE PUBLIC MARKETPLACE ==========
@@ -2760,7 +2774,7 @@ const statusClass = {
   'WAITING FOR MIDDLEMAN': 'st-waiting',
   'MIDDLEMAN JOINED': 'st-joined',
   'PAYMENT PENDING': 'st-pending',
-  'PAYMENT CONFIRMED': 'st-confirmed',
+  'PAYMENT PROCESSING': 'st-confirmed',
   'SELLER DELIVERING': 'st-delivering',
   'ITEM RECEIVED': 'st-received',
   'VERIFICATION': 'st-verify',
@@ -2771,7 +2785,7 @@ const statusClass = {
 };
 
 const statusFlow = [
-  'WAITING FOR MIDDLEMAN', 'MIDDLEMAN JOINED', 'PAYMENT PENDING', 'PAYMENT CONFIRMED',
+  'WAITING FOR MIDDLEMAN', 'MIDDLEMAN JOINED', 'PAYMENT PENDING', 'PAYMENT PROCESSING',
   'SELLER DELIVERING', 'ITEM RECEIVED', 'VERIFICATION', 'BUYER CONFIRMATION', 'COMPLETED'
 ];
 
@@ -5128,21 +5142,15 @@ function openPaymentModal() {
   openModal('paymentModal');
 }
 
-function selectPay(el) {
-  document.querySelectorAll('.pay-method').forEach(p => p.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedPayMethod = el.dataset.method;
-}
-
 function confirmPayment() {
   if (!currentTx) return;
   const txs = getTransactions();
   const tx = txs.find(t => String(t.id) === String(currentTx.id));
   if (!tx) return;
-  tx.status = 'PAYMENT CONFIRMED';
+  tx.status = 'PAYMENT PROCESSING';
   tx.messages.push({
     type: 'system',
-    text: `Payment marked: ₱${Number(tx.total).toLocaleString()} via ${selectedPayMethod}. Please verify QR / receipt shared in this GC before releasing the item.`,
+    text: `Payment marked as processing: ₱${Number(tx.total).toLocaleString()}. Please verify the QR / receipt shared in this GC before releasing the item.`,
     time: getPHT()
   });
   saveTransactions(txs);
@@ -5150,7 +5158,7 @@ function confirmPayment() {
   closeModal('paymentModal');
   openGc(currentTx.id);
   renderTransactions();
-  showToast('Payment Confirmed', `₱${Number(tx.total).toLocaleString()} marked as paid via ${selectedPayMethod}`);
+  showToast('Payment Processing', `₱${Number(tx.total).toLocaleString()} marked as processing`);
 }
 
 async function completeTransaction() {
