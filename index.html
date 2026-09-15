@@ -1206,6 +1206,103 @@ button:active,.btn:active,.nav-btn:active,.menu-btn:active,.fab:active,.side-ite
   display: inline-flex; align-items: center; gap: 5px;
   color: var(--text2); font-size: 0.82rem; font-weight: 600;
 }
+.card-engagement {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed #d7ebf7;
+}
+.card-eng-stat {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.78rem; font-weight: 700; color: #6a8fa8;
+  background: linear-gradient(135deg, #f7fcff, #fff5fa);
+  border: 1px solid #e0f0fa; border-radius: 999px;
+  padding: 4px 10px;
+}
+.card-eng-stat.likes { color: #c45f88; border-color: #ffd0e0; background: linear-gradient(135deg, #fff8fb, #ffeef4); }
+.card-eng-stat.comments { color: #3d7fa0; border-color: #cfe8f6; background: linear-gradient(135deg, #f3faff, #eef8ff); }
+.card-eng-stat .eng-num { font-weight: 800; }
+.card-popular-badge {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  background: linear-gradient(135deg, #ffe8a3, #ffd56a);
+  color: #7a5b00; border: 1px solid #f2bd55;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: .02em;
+  padding: 4px 9px; border-radius: 999px;
+  box-shadow: 0 3px 12px rgba(242,189,85,.28);
+}
+.engagement-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #f7fcff, #fff8fb);
+  border: 1px solid #e0f0fa; border-radius: 14px;
+}
+.comment-compose {
+  display: flex; gap: 8px; align-items: center;
+  background: rgba(255,255,255,.96);
+  border: 1.5px solid #cfe5f3; border-radius: 14px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: 0 3px 12px rgba(88,155,190,.08);
+}
+.comment-compose input {
+  flex: 1; min-width: 0; border: 0 !important; outline: none !important;
+  background: transparent !important; box-shadow: none !important;
+  padding: 8px 4px !important;
+  font: 600 0.88rem 'Quicksand', system-ui, sans-serif;
+  color: var(--text);
+}
+.comment-compose input::placeholder { color: #9bb4c6; font-weight: 600; }
+
+.marketplace-card {
+  animation: cardRise .38s cubic-bezier(.16,1,.3,1) both;
+}
+.marketplace-card:nth-child(1) { animation-delay: .02s; }
+.marketplace-card:nth-child(2) { animation-delay: .05s; }
+.marketplace-card:nth-child(3) { animation-delay: .08s; }
+.marketplace-card:nth-child(4) { animation-delay: .11s; }
+.marketplace-card:nth-child(5) { animation-delay: .14s; }
+.marketplace-card:nth-child(6) { animation-delay: .17s; }
+.marketplace-card:nth-child(n+7) { animation-delay: .2s; }
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(12px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+.card-eng-stat {
+  transition: transform .22s cubic-bezier(.16,1,.3,1), box-shadow .22s ease, background .22s ease;
+}
+.card-eng-stat.pop {
+  animation: engPop .42s cubic-bezier(.16,1,.3,1);
+}
+@keyframes engPop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.like-pill {
+  transition: transform .18s cubic-bezier(.16,1,.3,1), box-shadow .18s ease, background .18s ease, border-color .18s ease;
+}
+.like-pill.heart-pop {
+  animation: heartPop .45s cubic-bezier(.16,1,.3,1);
+}
+@keyframes heartPop {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.16); }
+  55% { transform: scale(.96); }
+  100% { transform: scale(1); }
+}
+.card-popular-badge {
+  animation: badgeIn .5s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes badgeIn {
+  from { opacity: 0; transform: translateY(-6px) scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+.comment-bubble {
+  animation: bubbleIn .28s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
 .comment-bubble {
   display: flex; gap: 10px; align-items: flex-start;
   background: rgba(255,255,255,.96); border: 1px solid #e8f4fc; border-radius: 14px;
@@ -3137,6 +3234,7 @@ function enterApp() {
   updatePresence();
   publishPresence(true);
   loadPublicListings();
+  startMarketplaceEngagementRealtime();
   syncPublicPresence();
   loadPublicTransactions(false);
   refreshUnreadDmCounts();
@@ -4102,14 +4200,13 @@ document.addEventListener('input', (e) => {
 });
 
 
-function renderListings() {
+async function renderListings() {
   const grid = document.getElementById('listingsGrid');
+  if (!grid) return;
   let list = getListings();
   const game = document.getElementById('filterGame')?.value || '';
   const server = document.getElementById('filterServer')?.value || '';
-  // Item search only — user search lives in the top nav and does not filter listings
   const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
-  // Marketplace: show available posts only (viewing a timeline must NEVER delete these)
   list = list.filter(l => l && l.active !== false && !l.sold);
   if (game) list = list.filter(l => l.game === game);
   if (server) list = list.filter(l => l.server === server);
@@ -4123,13 +4220,38 @@ function renderListings() {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p style="font-size:1.1rem;margin-bottom:8px">No listings yet</p><p>Be the first to post! Tap the <b style="color:#3baad6">+</b> button, or use the item search above.</p></div>';
     return;
   }
-  grid.innerHTML = list.map(l => {
+
+  const { likeCounts, commentCounts } = await fetchEngagementCounts(list.map(l => l.id));
+  // cache for realtime partial updates
+  window.__engLikeCounts = { ...(window.__engLikeCounts || {}), ...likeCounts };
+  window.__engCommentCounts = { ...(window.__engCommentCounts || {}), ...commentCounts };
+
+  list = [...list].sort((a, b) => {
+    const la = likeCounts[String(a.id)] || 0;
+    const lb = likeCounts[String(b.id)] || 0;
+    if (lb !== la) return lb - la;
+    const ca = commentCounts[String(a.id)] || 0;
+    const cb = commentCounts[String(b.id)] || 0;
+    if (cb !== ca) return cb - ca;
+    const ad = Date.parse(a.created || '') || Number(a.id) || 0;
+    const bd = Date.parse(b.created || '') || Number(b.id) || 0;
+    return bd - ad;
+  });
+
+  const topLike = list.length ? (likeCounts[String(list[0].id)] || 0) : 0;
+
+  grid.innerHTML = list.map((l, idx) => {
+    const idStr = String(l.id);
+    const likes = likeCounts[idStr] || 0;
+    const comments = commentCounts[idStr] || 0;
+    const isPopular = idx === 0 && likes > 0 && likes === topLike;
     const imgHtml = l.image
-      ? `<img src="${l.image}" alt="${escapeHtml(l.title)}" loading="lazy">`
+      ? `<img src="${escapeHtml(l.image)}" alt="${escapeHtml(l.title)}" loading="lazy">`
       : (l.emoji || GAME_EMOJIS[l.game] || '🎮');
     return `
-    <div class="card" style="position:relative" onclick="openListing(${l.id})">
-      ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" onclick="event.stopPropagation();deleteListingAsStaff(${l.id})">✕</button>` : ''}
+    <div class="card marketplace-card" data-post-id="${escapeHtml(idStr)}" style="position:relative" onclick="openListing(${JSON.stringify(idStr)})">
+      ${(isAdmin() || isMiddleman()) ? `<button class="btn btn-danger btn-sm staff-delete-btn" title="Delete post" onclick="event.stopPropagation();deleteListingAsStaff(${JSON.stringify(idStr)})">✕</button>` : ''}
+      ${isPopular ? `<span class="card-popular-badge">🔥 Popular</span>` : ''}
       <div class="card-img">
         <span class="card-badge">${escapeHtml(l.server)}</span>
         ${imgHtml}
@@ -4137,9 +4259,13 @@ function renderListings() {
       <div class="card-body">
         <div class="card-title">${escapeHtml(l.title)}</div>
         <div class="card-meta">${escapeHtml(l.game)} • <span class="seller-link" onclick="event.stopPropagation();openUserProfile(decodeURIComponent('${encodeURIComponent(String(l.seller))}'))">@${escapeHtml(l.seller)}</span></div>
-        <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div class="price">₱${Number(l.price).toLocaleString()}</div>
-          <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openListing(${l.id})">View</button>
+          <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openListing(${JSON.stringify(idStr)})">View</button>
+        </div>
+        <div class="card-engagement">
+          <span class="card-eng-stat likes" data-eng="likes">likes (<span class="eng-num">${likes}</span>)</span>
+          <span class="card-eng-stat comments" data-eng="comments">comment (<span class="eng-num">${comments}</span>)</span>
         </div>
       </div>
     </div>
@@ -4148,12 +4274,41 @@ function renderListings() {
 }
 
 // ========== POST LIKES & COMMENTS (Supabase, real-time) ==========
-// Needs two Supabase tables (see chat for the SQL to create them):
-//   post_likes    — id text PK, post_id text, username text, created_at timestamptz  (unique per post_id+username)
-//   post_comments — id text PK, post_id text, username text, display_name text, comment text, created_at timestamptz
-// Everything below fails quietly (console warning) if those tables aren't
-// created yet — Like/Comment just won't do anything until then.
+// Tables: post_likes, post_comments (already in your project + realtime publication)
 let __postEngagementChannel = null;
+let __marketEngagementChannel = null;
+let __marketEngRefreshTimer = null;
+
+function scheduleMarketplaceEngagementRefresh() {
+  if (__marketEngRefreshTimer) clearTimeout(__marketEngRefreshTimer);
+  __marketEngRefreshTimer = setTimeout(() => {
+    const mp = document.getElementById('page-marketplace');
+    if (mp && mp.classList.contains('active')) renderListings();
+  }, 280);
+}
+
+function startMarketplaceEngagementRealtime() {
+  if (!supabaseClient || __marketEngagementChannel) return;
+  try {
+    __marketEngagementChannel = supabaseClient
+      .channel('market-engagement')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, (payload) => {
+        const row = payload.new || payload.old || {};
+        const postId = String(row.post_id || '');
+        if (postId && currentListing && String(currentListing.id) === postId) loadPostLikes(postId);
+        scheduleMarketplaceEngagementRefresh();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments' }, (payload) => {
+        const row = payload.new || payload.old || {};
+        const postId = String(row.post_id || '');
+        if (postId && currentListing && String(currentListing.id) === postId) loadPostComments(postId);
+        scheduleMarketplaceEngagementRefresh();
+      })
+      .subscribe((status) => console.log('Marketplace engagement realtime:', status));
+  } catch (err) {
+    console.warn('Marketplace engagement realtime setup failed:', err);
+  }
+}
 
 async function loadPostLikes(postId) {
   const likeBtn = document.getElementById('btnLikePost');
@@ -4163,34 +4318,56 @@ async function loadPostLikes(postId) {
     if (error) throw error;
     const rows = data || [];
     const liked = currentUser && rows.some(r => String(r.username).toLowerCase() === String(currentUser.username).toLowerCase());
+    const prev = likeBtn.querySelector('#likeCount')?.textContent;
     likeBtn.classList.toggle('liked', !!liked);
     likeBtn.innerHTML = `${liked ? '❤️' : '🤍'} <span id="likeCount">${rows.length}</span>`;
+    if (prev != null && String(prev) !== String(rows.length)) {
+      likeBtn.classList.remove('heart-pop');
+      void likeBtn.offsetWidth;
+      likeBtn.classList.add('heart-pop');
+    }
+    // live update card count without full re-render when possible
+    const card = document.querySelector(`.marketplace-card[data-post-id="${CSS.escape(String(postId))}"] .card-eng-stat.likes .eng-num`);
+    if (card) {
+      card.textContent = String(rows.length);
+      const pill = card.closest('.card-eng-stat');
+      if (pill) { pill.classList.remove('pop'); void pill.offsetWidth; pill.classList.add('pop'); }
+    }
   } catch (err) {
-    console.warn('Load likes failed (create the post_likes table?):', err);
+    console.warn('Load likes failed:', err);
   }
 }
 
 async function toggleLikePost(postId) {
   if (!currentUser) return showToast('Login required', 'Please log in first.');
   if (!supabaseClient) return;
+  const likeBtn = document.getElementById('btnLikePost');
+  if (likeBtn) {
+    likeBtn.classList.remove('heart-pop');
+    void likeBtn.offsetWidth;
+    likeBtn.classList.add('heart-pop');
+  }
   try {
     const { data } = await supabaseClient
       .from('post_likes').select('id')
       .eq('post_id', String(postId)).eq('username', currentUser.username).maybeSingle();
     if (data) {
-      await supabaseClient.from('post_likes').delete().eq('id', data.id);
+      const { error } = await supabaseClient.from('post_likes').delete().eq('id', data.id);
+      if (error) throw error;
     } else {
-      await supabaseClient.from('post_likes').insert({
+      const { error } = await supabaseClient.from('post_likes').insert({
         id: 'LIKE-' + Date.now() + '-' + currentUser.username,
         post_id: String(postId),
         username: currentUser.username,
         created_at: new Date().toISOString()
       });
+      if (error) throw error;
     }
     await loadPostLikes(postId);
+    scheduleMarketplaceEngagementRefresh();
   } catch (err) {
-    console.warn('Toggle like failed (create the post_likes table?):', err);
-    showToast('Unable to like', 'This needs the post_likes table in Supabase.');
+    console.warn('Toggle like failed:', err);
+    showToast('Unable to like', err?.message || 'Check post_likes table / RLS policies.');
   }
 }
 
@@ -4217,8 +4394,14 @@ async function loadPostComments(postId) {
         </div>
       </div>`;
     }).join('') : `<div style="color:var(--text2);font-size:0.85rem;padding:8px 0">No comments yet. Be the first! 🎀</div>`;
+    const card = document.querySelector(`.marketplace-card[data-post-id="${CSS.escape(String(postId))}"] .card-eng-stat.comments .eng-num`);
+    if (card) {
+      card.textContent = String(comments.length);
+      const pill = card.closest('.card-eng-stat');
+      if (pill) { pill.classList.remove('pop'); void pill.offsetWidth; pill.classList.add('pop'); }
+    }
   } catch (err) {
-    console.warn('Load comments failed (create the post_comments table?):', err);
+    console.warn('Load comments failed:', err);
     list.innerHTML = `<div style="color:var(--text2);font-size:0.85rem;padding:8px 0">Comments unavailable right now.</div>`;
   }
 }
@@ -4240,12 +4423,11 @@ async function submitPostComment() {
     });
     if (error) throw error;
     if (input) input.value = '';
-    // Realtime will also refresh this, but update immediately so the
-    // person who just commented sees it without waiting on the socket.
     await loadPostComments(currentListing.id);
+    scheduleMarketplaceEngagementRefresh();
   } catch (err) {
-    console.warn('Submit comment failed (create the post_comments table?):', err);
-    showToast('Unable to comment', 'This needs the post_comments table in Supabase.');
+    console.warn('Submit comment failed:', err);
+    showToast('Unable to comment', err?.message || 'Check post_comments table / RLS policies.');
   }
 }
 
@@ -4310,14 +4492,14 @@ async function openListing(id) {
     <div class="divider"></div>
     <p style="color:var(--text2);font-size:0.9rem">Use the trusted Philippines Middleman system for safe trading. A private GC will be created automatically.</p>
     <div class="divider"></div>
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
-      <button type="button" class="like-pill" id="btnLikePost" onclick="toggleLikePost('${currentListing.id}')">🤍 <span id="likeCount">0</span></button>
+    <div class="engagement-bar">
+      <button type="button" class="like-pill" id="btnLikePost" onclick="toggleLikePost('${String(currentListing.id).replace(/'/g, "\\'")}')">🤍 <span id="likeCount">0</span></button>
       <span class="comment-count-pill" id="commentCount">💬 0 comments</span>
     </div>
-    <h4 style="margin-bottom:10px">💬 Comments</h4>
+    <h4 style="margin:0 0 10px;color:#2f6f8f;font-size:0.98rem">💬 Comments</h4>
     <div id="postCommentsList" style="margin-bottom:12px"></div>
-    <div style="display:flex;gap:8px">
-      <input type="text" class="form-control" id="postCommentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter'){event.preventDefault();submitPostComment();}">
+    <div class="comment-compose">
+      <input type="text" id="postCommentInput" placeholder="Write a comment… 🎀" maxlength="500" onkeydown="if(event.key==='Enter'){event.preventDefault();submitPostComment();}">
       <button class="btn btn-primary btn-sm" onclick="submitPostComment()">Send</button>
     </div>
   `;
